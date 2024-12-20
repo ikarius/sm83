@@ -1,5 +1,6 @@
 const std = @import("std");
 const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
 
 // handling endianness for register pointers
 const ENDIAN = @import("builtin").target.cpu.arch.endian();
@@ -32,6 +33,58 @@ const SM83 = struct {
 
     fn imm8(self: SM83) u8 {
         return self.mem[self.PC + 1];
+    }
+
+    // 8 bit registers can't be accessed directly
+
+    fn setR8(self: *SM83, reg: OpTarget, val: u8) void {
+        switch (reg) {
+            .B => self.BC = setMSB(self.BC, val),
+            .C => self.BC = setLSB(self.BC, val),
+            .D => self.DE = setMSB(self.DE, val),
+            .E => self.DE = setLSB(self.DE, val),
+            .H => self.HL = setLSB(self.HL, val),
+            .L => self.HL = setMSB(self.HL, val),
+            .A => self.AF = setLSB(self.AF, val),
+            else => unreachable,
+        }
+    }
+
+    fn r8(self: SM83, reg: OpTarget) u8 {
+        return switch (reg) {
+            .A => LSB(self.AF),
+            .B => LSB(self.BC),
+            .C => MSB(self.BC),
+            .D => LSB(self.DE),
+            .E => MSB(self.DE),
+            .H => LSB(self.HL),
+            .L => MSB(self.HL),
+            else => unreachable,
+        };
+    }
+
+    // 16 bits registers can be accessed directly
+    // or by "reflection" with OpTarget
+
+    fn r16(self: SM83, reg: OpTarget) u16 {
+        return switch (reg) {
+            .AF => self.AF, // FIXME: probably useless
+            .BC => self.BC,
+            .DE => self.DE,
+            .HL => self.HL,
+            .SP => self.SP,
+            else => unreachable,
+        };
+    }
+
+    fn setR16(self: *SM83, reg: OpTarget, val: u16) void {
+        switch (reg) {
+            .BC => self.BC = val,
+            .DE => self.BC = val,
+            .HL => self.BC = val,
+            .SP => self.BC = val,
+            else => unreachable,
+        }
     }
 };
 
@@ -112,7 +165,7 @@ test "MSB/LSB values" {
 
 // TODO: maybe implement pointer result versions of MSB/LSB.
 
-fn setR8(code: R8imm, val: u8) void {
+fn _setR8(code: R8imm, val: u8) void {
     switch (code) {
         R8imm.B => cpu.BC = setMSB(cpu.BC, val),
         R8imm.C => cpu.BC = setLSB(cpu.BC, val),
@@ -144,7 +197,7 @@ fn R8x(code: R8imm) *u8 {
 
 test "load (hl)" {
     cpu.HL = 0x1234;
-    setR8(._HL_, 0x13);
+    _setR8(._HL_, 0x13);
     try expect(cpu.mem[cpu.HL] == 0x13);
 }
 
@@ -244,7 +297,7 @@ fn nop(op: Op) void {
     std.debug.print("op: {s}\n should execute in {d} tstates\n", .{ op.str, op.tstates });
 }
 
-test "NOP" {
+test "misc op: NOP" {
     nop(mainOps[0]);
 }
 
@@ -274,14 +327,15 @@ fn R8(target: OpTarget) *u8 {
 
 fn ld(op: Op) void {
     // a beefy one to start with : LD ops are almost half of the operation set
-
     switch (op.srcType) {
         // process immediate register ops :
         .imm8 => {
-            R8(op.dest).* = cpu.imm8();
+            cpu.setR8(op.dest, cpu.imm8());
         },
         .imm16 => {
-            R16(op.dest).* = cpu.imm16();
+            // FIXME: no need of pointers here, just set targets
+            // R16(op.dest).* = cpu.imm16();
+            cpu.setR16(op.dest, cpu.imm16());
         },
         .reg8 => {
             switch (op.destType) {
@@ -289,7 +343,7 @@ fn ld(op: Op) void {
                     // TODO
                 },
                 .reg16ind => {
-                    cpu.mem[R16(op.dest).*] = R8(op.src).*;
+                    cpu.mem[cpu.r16(op.dest)] = cpu.r8(op.src);
                 },
                 else => unreachable,
             }
@@ -301,7 +355,7 @@ fn ld(op: Op) void {
     }
 }
 
-test "LD BC,1234H" {
+test "misc op: LD BC,1234H" {
     cpu.mem[0] = 0x01;
     cpu.mem[1] = 0x34;
     cpu.mem[2] = 0x12;
@@ -309,12 +363,12 @@ test "LD BC,1234H" {
     try expect(cpu.BC == 0x1234);
 }
 
-test "LD (BC),A" {
-    setR8(.A, 0x42);
+test "misc op: LD (BC),A" {
+    cpu.setR8(.A, 0x42);
     cpu.BC = 0x1234;
     ld(mainOps[2]);
 
-    try expect(cpu.mem[0x1234] == 0x42);
+    try expectEqual(0x42, cpu.mem[0x1234]);
 }
 
 /// Increments a 16bit register : no flags handling (F)
@@ -331,7 +385,7 @@ fn dec16(op: Op) void {
     R16(op.dest).* -%= 1;
 }
 
-test "INC BC" {
+test "misc op: INC BC" {
     cpu.BC = 0x1233;
     exec(mainOps[3]);
     try expect(cpu.BC == 0x1234);
