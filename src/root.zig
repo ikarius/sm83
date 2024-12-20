@@ -13,7 +13,10 @@ const ENDIAN = @import("builtin").target.cpu.arch.endian();
 const msb_index = if (ENDIAN == std.builtin.Endian.little) 1 else 0;
 const lsb_index = if (ENDIAN == std.builtin.Endian.little) 0 else 1;
 
-// Basic structure of a CPU : register + mem + internal switches
+/// Basic structure of a CPU :
+///
+/// registers + mem + internal switches
+/// and some logical functions related to registers logic
 const SM83 = struct {
     // The SM83 is a simplified Z80, registers will be handled as 16b by default.
     AF: u16 = 0, // Acc + Flags
@@ -378,54 +381,6 @@ test "misc op: INC BC" {
     try expect(cpu.BC == 0x0000);
 }
 
-fn inc8() void {}
-
-/// Check if there is a *half-carry* (for addition)
-/// or a *half-borrow* (for substraction)
-/// performed when moving from `old` value to `new` value.
-///
-/// The `carry` parameter must be `true` for half-carry check, or `false` for half-borrow.
-fn hc8(old: u8, new: u8, carry: bool) bool {
-    // Zig idiomatic:
-    // maybe be replaced with mask instructions should the need arise (performance)
-    return switch (carry) {
-        true => @as(u4, @truncate(old)) > @as(u4, @truncate(new)),
-        false => @as(u4, @truncate(old)) < @as(u4, @truncate(new)),
-    };
-}
-
-// TODO: specialized versions (hc, hb ?)
-
-test "half-carry 8b: addition" {
-    const old = 0b1111;
-    const new = old + 1;
-
-    // no change
-    try expect(!hc8(old, old, true));
-
-    // should "carry"
-    try expect(hc8(old, new, true));
-
-    const old2 = 0b10111;
-    const new2 = old2 + 1;
-
-    // Should not "carry"
-    try expect(!hc8(old2, new2, true));
-}
-
-test "half-borrow 8b: substraction" {
-    const old = 0b10000;
-    const new = old - 1;
-
-    // no change
-    try expect(!hc8(old, old, false));
-
-    // should "borrow"
-    try expect(hc8(old, new, false));
-
-    const old2 = 0b10011;
-    const new2 = old2 - 1;
-
-    // Should not "borrow"
-    try expect(!hc8(old2, new2, false));
+fn inc8() void {
+    // FIXME: needs test harness before going further
 }
