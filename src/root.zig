@@ -2,6 +2,12 @@ const std = @import("std");
 const expect = std.testing.expect;
 const expectEqual = std.testing.expectEqual;
 
+const logic = @import("logic.zig");
+const setLSB = logic.setLSB;
+const setMSB = logic.setMSB;
+const LSB = logic.LSB;
+const MSB = logic.MSB;
+
 // handling endianness for register pointers
 const ENDIAN = @import("builtin").target.cpu.arch.endian();
 const msb_index = if (ENDIAN == std.builtin.Endian.little) 1 else 0;
@@ -138,31 +144,6 @@ const cond = enum(2) {
     C = 0b11, // carry
 };
 
-// there is maybe a possibility of using comptime
-fn setMSB(reg: u16, val: u8) u16 {
-    return (reg & 0x00ff) | @as(u16, val) << 8;
-}
-
-fn setLSB(reg: u16, val: u8) u16 {
-    return (reg & 0xff00) | val;
-}
-
-/// Returns the most significant byte (MSB) of 16 bit register.
-fn MSB(reg: u16) u8 {
-    return @truncate((reg & 0xff00) >> 8);
-}
-
-/// Returns the least significant byte (LSB) of 16 bit register.
-fn LSB(reg: u16) u8 {
-    return @truncate(reg & 0x00ff);
-}
-
-test "MSB/LSB values" {
-    const reg = 0x1234;
-    try expect(MSB(reg) == 0x12);
-    try expect(LSB(reg) == 0x34);
-}
-
 // TODO: maybe implement pointer result versions of MSB/LSB.
 
 fn _setR8(code: R8imm, val: u8) void {
@@ -179,6 +160,7 @@ fn _setR8(code: R8imm, val: u8) void {
 }
 
 fn R8x(code: R8imm) *u8 {
+    // FIXME: maybe useless...
     return switch (code) {
         R8imm.B => &(@as([*]u8, @ptrCast(&cpu.BC))[msb_index]),
         R8imm.C => &(@as([*]u8, @ptrCast(&cpu.BC))[lsb_index]),
@@ -232,6 +214,7 @@ test "optype str (in enum)" {
 }
 
 /// Operands found in a CPU operation:
+///
 /// an op can have 0, 1 or 2 operands (`src` and `dest`).
 /// - register `BC` (reg16) and `0x1234` (imm16) in op `LD BC,01234H`
 /// - register `B` (reg8) and value of `[HL]` (reg16ind) in op `LD B,[HL]`
@@ -256,6 +239,7 @@ const OperandType = enum {
 const OpTarget = enum { none, A, B, C, D, E, H, L, AF, BC, DE, HL, SP, HLI, HLD, _0, _1, _2, _3, _4, _5, _6, _7, IMM8, IMM16 };
 
 /// CPU operations :
+///
 /// the structure of a CPU operation (op) is freely inspired from the one of Realboy.
 /// - source pair : dest_type, dest
 /// - destination pair : src_type, src
@@ -333,14 +317,13 @@ fn ld(op: Op) void {
             cpu.setR8(op.dest, cpu.imm8());
         },
         .imm16 => {
-            // FIXME: no need of pointers here, just set targets
-            // R16(op.dest).* = cpu.imm16();
             cpu.setR16(op.dest, cpu.imm16());
         },
         .reg8 => {
             switch (op.destType) {
                 .reg8 => {
-                    // TODO
+                    // TODO: test
+                    cpu.setR8(op.dest, cpu.r8(op.src));
                 },
                 .reg16ind => {
                     cpu.mem[cpu.r16(op.dest)] = cpu.r8(op.src);
