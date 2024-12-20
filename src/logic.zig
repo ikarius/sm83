@@ -2,12 +2,20 @@ const std = @import("std");
 const expectEqual = std.testing.expectEqual;
 const expect = std.testing.expect;
 
+/// Update the most significant byte (*MSB*) of input word (u16).
 pub fn setMSB(reg: u16, val: u8) u16 {
     return (reg & 0x00ff) | @as(u16, val) << 8;
 }
 
+/// Update the least significant byte (*LSB*) of input word (u16).
 pub fn setLSB(reg: u16, val: u8) u16 {
     return (reg & 0xff00) | val;
+}
+
+test "set MSB/LSB" {
+    const word = 0x1234;
+    try expectEqual(0x1242, setLSB(word, 0x42));
+    try expectEqual(0x4234, setMSB(word, 0x42));
 }
 
 /// Returns the most significant byte (*MSB*) of 16 bit register.
