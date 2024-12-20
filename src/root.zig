@@ -21,6 +21,11 @@ const SM83 = struct {
     // Memory is not initialized by default
     mem: [1024 * 64]u8 = undefined,
 
+    // current operation
+    curOp: Op = undefined,
+    // accumulated t-states
+    curTs: u32 = 0,
+
     fn imm16(self: SM83) u16 {
         return @as(u16, self.mem[self.PC + 2]) << 8 | self.mem[self.PC + 1];
     }
@@ -149,12 +154,6 @@ test "access registers via pointers" {
     try expect(cpu.DE == 0x1256);
 }
 
-/// Run current operation (the one at RAM[PC]).
-fn exec() void {
-    // var opcode = cpu.mem[cpu.PC];
-    // operation without parameters
-}
-
 // Experimental (still) :
 // CPU operations
 
@@ -210,19 +209,34 @@ const OpTarget = enum { none, A, B, C, D, E, H, L, AF, BC, DE, HL, SP, HLI, HLD,
 const Op = struct {
     code: u8,
     str: []const u8,
-    destType: OperandType,
-    dest: OpTarget,
-    srcType: OperandType,
-    src: OpTarget,
+    destType: OperandType = .none,
+    dest: OpTarget = .none,
+    srcType: OperandType = .none,
+    src: OpTarget = .none,
     offset: u2,
     tstates: u4,
     func: *const fn (Op) void,
 };
 
+fn exec(op: Op) void {
+    // exec wraps op execution, PC update and timing calculations
+    cpu.curOp = op;
+    op.func(op);
+    // to be accurate, PC should be incremented *before* op execution
+    cpu.PC += op.offset;
+    cpu.curTs += op.tstates;
+}
+
+fn execAt(addr: u16) void {
+    // todo: maybe inlining would be a good idea
+    exec(mainOps[cpu.mem[addr]]);
+}
+
 const mainOps = [_]Op{
     Op{ .code = 0x00, .str = "NOP", .destType = .none, .dest = .none, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = nop },
     Op{ .code = 0x01, .str = "LD", .destType = .reg16, .dest = .BC, .srcType = .imm16, .src = .none, .offset = 3, .tstates = 12, .func = ld },
     Op{ .code = 0x02, .str = "LD", .destType = .reg16ind, .dest = .BC, .srcType = .reg8, .src = .A, .offset = 1, .tstates = 8, .func = ld },
+    Op{ .code = 0x02, .str = "INC", .destType = .reg16, .dest = .BC, .srcType = .none, .src = .none, .offset = 1, .tstates = 8, .func = inc16 },
     // ...
 };
 
@@ -261,8 +275,8 @@ fn R8(target: OpTarget) *u8 {
 fn ld(op: Op) void {
     // a beefy one to start with : LD ops are almost half of the operation set
 
-    // process immediate register ops :
     switch (op.srcType) {
+        // process immediate register ops :
         .imm8 => {
             R8(op.dest).* = cpu.imm8();
         },
@@ -271,14 +285,18 @@ fn ld(op: Op) void {
         },
         .reg8 => {
             switch (op.destType) {
-                .reg8 => {},
+                .reg8 => {
+                    // TODO
+                },
                 .reg16ind => {
                     cpu.mem[R16(op.dest).*] = R8(op.src).*;
                 },
                 else => unreachable,
             }
         },
-
+        .reg16 => {
+            // TODO
+        },
         else => unreachable,
     }
 }
@@ -297,4 +315,28 @@ test "LD (BC),A" {
     ld(mainOps[2]);
 
     try expect(cpu.mem[0x1234] == 0x42);
+}
+
+/// Increments a 16bit register : no flags handling (F)
+fn inc16(op: Op) void {
+    // doesn't check op validity (in op we trust)
+    // handle overflow
+    R16(op.dest).* +%= 1;
+}
+
+/// Decrements a 16bit register : no flags handling (F)
+fn dec16(op: Op) void {
+    // doesn't check op validity (in op we trust)
+    // handle overflow
+    R16(op.dest).* -%= 1;
+}
+
+test "INC BC" {
+    cpu.BC = 0x1233;
+    exec(mainOps[3]);
+    try expect(cpu.BC == 0x1234);
+
+    cpu.BC = 0xFFFF;
+    exec(mainOps[3]);
+    try expect(cpu.BC == 0x0000);
 }
