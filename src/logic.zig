@@ -13,9 +13,9 @@ pub fn setLSB(reg: u16, val: u8) u16 {
 }
 
 test "set MSB/LSB" {
-    const word = 0x1234;
-    try expectEqual(0x1242, setLSB(word, 0x42));
-    try expectEqual(0x4234, setMSB(word, 0x42));
+    const w = 0x1234;
+    try expectEqual(0x1242, setLSB(w, 0x42));
+    try expectEqual(0x4234, setMSB(w, 0x42));
 }
 
 /// Returns the most significant byte (*MSB*) of 16 bit register.
@@ -32,6 +32,14 @@ test "MSB/LSB values" {
     const reg = 0x1234;
     try expectEqual(0x12, MSB(reg));
     try expectEqual(0x34, LSB(reg));
+}
+
+pub fn word(msb: u8, lsb: u8) u16 {
+    return @as(u16, msb) << 8 | lsb;
+}
+
+test "word values" {
+    try expectEqual(0x1234, word(0x12, 0x34));
 }
 
 /// Check if there is a *half-carry* (for addition)
@@ -83,3 +91,25 @@ test "half-borrow 8b: substraction" {
     // Should not "borrow"
     try expect(!hc8(old2, new2, false));
 }
+
+// Allume le bit à la position spécifiée
+pub fn setBit(byte: u8, pos: u3) u8 {
+    return byte | (@as(u8, 1) << pos);
+}
+
+// Éteint le bit à la position spécifiée
+pub fn resetBit(byte: u8, pos: u3) u8 {
+    return byte & ~(@as(u8, 1) << pos);
+}
+
+// Inverse le bit à la position spécifiée
+pub fn toggleBit(byte: u8, pos: u3) u8 {
+    return byte ^ (@as(u8, 1) << pos);
+}
+
+// Vérifie si un bit est allumé
+pub fn isBit(byte: u8, pos: u3) bool {
+    return (byte & (@as(u8, 1) << pos)) != 0;
+}
+
+// FIXME : add tests
