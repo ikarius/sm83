@@ -116,17 +116,18 @@ fn testOpNumber(opNumber: u8) !void {
     const CPU = try SM83.init(allocator);
     defer CPU.deinit(allocator);
 
-    for (testSuite.value) |optest| {
-        std.debug.print("name: {s}\n", .{optest.name});
+    for (testSuite.value, 0..) |optest, i| {
+        std.debug.print("Running Test number {d}: {s}\n", .{ i + 1, optest.name });
+        // std.debug.print("name: {s}\n", .{optest.name});
         std.debug.print("initial: {any}\n", .{optest.initial});
         std.debug.print("final: {any}\n", .{optest.final});
-
-        // TODO: do the actual test...
 
         try checkCPUState(CPU, optest);
     }
 }
 
 test "Open test file by number" {
-    try testOpNumber(0x00);
+    // try testOpNumber(0x00);
+    // try testOpNumber(0x01);
+    try testOpNumber(0x02);
 }

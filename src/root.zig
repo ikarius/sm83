@@ -48,35 +48,35 @@ pub const SM83 = struct {
     }
 
     pub fn A(self: SM83) u8 {
-        return LSB(self.AF);
-    }
-
-    pub fn B(self: SM83) u8 {
-        return LSB(self.BC);
-    }
-
-    pub fn C(self: SM83) u8 {
-        return MSB(self.BC);
-    }
-
-    pub fn D(self: SM83) u8 {
-        return LSB(self.DE);
-    }
-
-    pub fn E(self: SM83) u8 {
-        return MSB(self.DE);
-    }
-
-    pub fn F(self: SM83) u8 {
         return MSB(self.AF);
     }
 
+    pub fn B(self: SM83) u8 {
+        return MSB(self.BC);
+    }
+
+    pub fn C(self: SM83) u8 {
+        return LSB(self.BC);
+    }
+
+    pub fn D(self: SM83) u8 {
+        return MSB(self.DE);
+    }
+
+    pub fn E(self: SM83) u8 {
+        return LSB(self.DE);
+    }
+
+    pub fn F(self: SM83) u8 {
+        return LSB(self.AF);
+    }
+
     pub fn H(self: SM83) u8 {
-        return LSB(self.HL);
+        return MSB(self.HL);
     }
 
     pub fn L(self: SM83) u8 {
-        return MSB(self.HL);
+        return LSB(self.HL);
     }
 
     pub fn reset(self: *SM83) void {
@@ -111,22 +111,22 @@ pub const SM83 = struct {
             .C => self.BC = setLSB(self.BC, val),
             .D => self.DE = setMSB(self.DE, val),
             .E => self.DE = setLSB(self.DE, val),
-            .H => self.HL = setLSB(self.HL, val),
-            .L => self.HL = setMSB(self.HL, val),
-            .A => self.AF = setLSB(self.AF, val),
+            .H => self.HL = setMSB(self.HL, val),
+            .L => self.HL = setLSB(self.HL, val),
+            .A => self.AF = setMSB(self.AF, val),
             else => unreachable,
         }
     }
 
     pub fn r8(self: SM83, reg: OpTarget) u8 {
         return switch (reg) {
-            .A => LSB(self.AF),
-            .B => LSB(self.BC),
-            .C => MSB(self.BC),
-            .D => LSB(self.DE),
-            .E => MSB(self.DE),
-            .H => LSB(self.HL),
-            .L => MSB(self.HL),
+            .A => MSB(self.AF),
+            .B => MSB(self.BC),
+            .C => LSB(self.BC),
+            .D => MSB(self.DE),
+            .E => LSB(self.DE),
+            .H => MSB(self.HL),
+            .L => LSB(self.HL),
             else => unreachable,
         };
     }
@@ -359,7 +359,7 @@ test "misc op: LD (BC),A" {
     CPU.BC = 0x1234;
     ld(CPU, mainOps[2]);
 
-    try expectEqual(0x42, CPU.mem[0x1234]);
+    try expectEqual(0x42, CPU.mem[CPU.BC]);
 }
 
 /// Increments a 16b register : no flags handling needed.
