@@ -397,4 +397,6 @@ fn inc8(CPU: *SM83, op: Op) void {
     // FIXME: needs test harness before going further
     var value = CPU.r8(op.dest);
     value +%= 1;
+
+    CPU.setR8(op.dest, value);
 }
