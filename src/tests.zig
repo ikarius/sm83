@@ -34,8 +34,10 @@ const OpTest = struct {
 
 const test_path = "./tests/sm83/v1";
 
+/// Loads test data into the CPU.
 fn loadCpuState(CPU: *SM83, state: CpuState) void {
     CPU.reset();
+
     CPU.AF = word(state.a, state.f);
     CPU.BC = word(state.b, state.c);
     CPU.DE = word(state.d, state.e);
@@ -48,6 +50,7 @@ fn loadCpuState(CPU: *SM83, state: CpuState) void {
     }
 }
 
+/// Compares the current CPU state with the final state.
 fn compareCpuState(CPU: *SM83, final: CpuState) !void {
     try expectEqual(final.a, CPU.A());
     try expectEqual(final.f, CPU.F());
@@ -57,14 +60,21 @@ fn compareCpuState(CPU: *SM83, final: CpuState) !void {
     try expectEqual(final.e, CPU.E());
     try expectEqual(final.h, CPU.H());
     try expectEqual(final.l, CPU.L());
+
     try expectEqual(final.sp, CPU.SP);
     try expectEqual(final.pc, CPU.PC);
+
+    // TODO: tstates ?
+    // t-states are not in the test suite (only complete cycles)
+    // they can be calculated from the cycles count and types.
 
     for (final.ram) |ram| {
         try expectEqual(ram[1], CPU.mem[ram[0]]);
     }
 }
 
+/// Loads the test data into the CPU, executes the operation,
+/// then compares the CPU state with the final state.
 fn checkCPUState(CPU: *SM83, optest: OpTest) !void {
     loadCpuState(CPU, optest.initial);
     CPU.execAt(optest.initial.pc);

@@ -8,6 +8,7 @@ const setMSB = logic.setMSB;
 const LSB = logic.LSB;
 const MSB = logic.MSB;
 const hc8 = logic.hc8;
+const toggleBit = logic.toggleBit;
 
 // handling endianness for register pointers
 const ENDIAN = @import("builtin").target.cpu.arch.endian();
@@ -47,6 +48,8 @@ pub const SM83 = struct {
         allocator.destroy(self);
     }
 
+    // 8 bit registers can't be accessed directly
+
     pub fn A(self: SM83) u8 {
         return MSB(self.AF);
     }
@@ -79,6 +82,7 @@ pub const SM83 = struct {
         return LSB(self.HL);
     }
 
+    /// Reset the CPU : all registers to 0, memory flushed and reset count of t-states.
     pub fn reset(self: *SM83) void {
         self.AF = 0;
         self.BC = 0;
@@ -95,15 +99,18 @@ pub const SM83 = struct {
         self.curTs = 0;
     }
 
+    /// Get the immediate 16 bit value after the current instruction.
     pub fn imm16(self: SM83) u16 {
         return @as(u16, self.mem[self.PC + 2]) << 8 | self.mem[self.PC + 1];
     }
 
+    /// Get the immediate 8 bit value after the current instruction.
     pub fn imm8(self: SM83) u8 {
         return self.mem[self.PC + 1];
     }
 
-    // 8 bit registers can't be accessed directly
+    // 8 bit registers can't be set directly
+    // but can be set by "reflection" with `OpTarget`.
 
     pub fn setR8(self: *SM83, reg: OpTarget, val: u8) void {
         switch (reg) {
@@ -155,11 +162,12 @@ pub const SM83 = struct {
         }
     }
 
-    // fn setF(self:*SM83, cf:flag, val:bool) void {
-    //     switch (cf) {
-    //         .Z =>
-    //     }
-    // }
+    /// Set a flag on register F.
+    fn setFlag(self: *SM83, cf: Flag, val: bool) void {
+        self.AF = self.AF & 0xff00 | toggleBit(self.F(), @intFromEnum(cf), val);
+    }
+
+    /// Execute an operation.
     pub fn exec(self: *SM83, op: Op) void {
         // exec wraps op execution, PC update and timing calculations
         self.curOp = op;
@@ -169,8 +177,9 @@ pub const SM83 = struct {
         self.curTs += op.tstates;
     }
 
+    /// Execute an operation at a specific address.
     pub fn execAt(self: *SM83, addr: u16) void {
-        // todo: maybe inlining would be a good idea
+        // TODO: maybe inlining would be a good idea (or not)
         self.exec(mainOps[self.mem[addr]]);
     }
 };
@@ -196,46 +205,12 @@ test "CPU imm8" {
     try expect(CPU.imm8() == 0x42);
 }
 
-// pub var CPU = SM83.init();
-
-// POC : what I want to do is :
-// perform an action (read or write basically) on a given emulated CPU register (Zig type u16 or u8)
-// by having only a code representing the register
-// for instance : if 0b010 (binary) identifies register DE, I want to be able to read or write a value in DE
-
-const R8imm = enum(u3) {
-    // r8 : immediate
-    B = 0b000,
-    C = 0b001,
-    D = 0b010,
-    E = 0b011,
-    H = 0b100,
-    L = 0b101,
-    _HL_ = 0b110, // [HL] memory access
-    A = 0b111,
-};
-
-const R16imm = enum(u2) {
-    // r16 : immediate
-    BC = 0b00,
-    DE = 0b01,
-    HL = 0b10,
-    SP = 0b11,
-};
-
-/// Conditions / flags for the F register of the SM83.
-const cond = enum(2) {
-    NZ = 0b00, // non-zero
-    Z = 0b01, // zero
-    NC = 0b10, // non-carry
-    C = 0b11, // carry
-};
-
-const flag = enum(4) {
-    Z = 7,
-    N = 6,
-    H = 5,
-    C = 4,
+/// Flags : Z, N, H, C are F register bits.
+const Flag = enum(u3) {
+    Z = 7, // Zero
+    N = 6, // Substraction
+    H = 5, // Half-Carry
+    C = 4, // Carry
 };
 
 // First I would like to test some really basic operations on the CPU
@@ -298,16 +273,9 @@ const mainOps = [_]Op{
     // ...
 };
 
-fn nop(_: *SM83, op: Op) void {
-    std.debug.print("op: {s}\n should execute in {d} tstates\n", .{ op.str, op.tstates });
-}
+// CPU instructions implementation
 
-test "misc op: NOP" {
-    var CPU = try SM83.init(std.testing.allocator);
-    defer CPU.deinit(std.testing.allocator);
-
-    nop(CPU, mainOps[0]);
-}
+fn nop(_: *SM83, _: Op) void {}
 
 fn ld(CPU: *SM83, op: Op) void {
     // a beefy one to start with : LD ops are almost half of the full operation set
@@ -362,14 +330,14 @@ test "misc op: LD (BC),A" {
     try expectEqual(0x42, CPU.mem[CPU.BC]);
 }
 
-/// Increments a 16b register : no flags handling needed.
+/// Increments a 16bit register : no flags handling needed.
 fn inc16(CPU: *SM83, op: Op) void {
     // doesn't check op validity (in op we trust)
     // handle overflow
     CPU.setR16(op.dest, CPU.r16(op.dest) +% 1);
 }
 
-/// Decrements a 16b register : no flags handling needed.
+/// Decrements a 16bit register : no flags handling needed.
 fn dec16(CPU: *SM83, op: Op) void {
     // doesn't check op validity (in op we trust)
     // handle overflow
@@ -392,9 +360,7 @@ test "misc op: INC BC" {
     try expectEqual(0x0000, CPU.BC);
 }
 
-/// Increments 8b register: handles F register.
 fn inc8(CPU: *SM83, op: Op) void {
-    // FIXME: needs test harness before going further
     var value = CPU.r8(op.dest);
     value +%= 1;
 

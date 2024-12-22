@@ -92,23 +92,27 @@ test "half-borrow 8b: substraction" {
     try expect(!hc8(old2, new2, false));
 }
 
-// Allume le bit à la position spécifiée
+/// Set bit at position `pos`in byte `byte`.
 pub fn setBit(byte: u8, pos: u3) u8 {
     return byte | (@as(u8, 1) << pos);
 }
 
-// Éteint le bit à la position spécifiée
+/// Reset bit at position `pos`in byte `byte`.
 pub fn resetBit(byte: u8, pos: u3) u8 {
     return byte & ~(@as(u8, 1) << pos);
 }
-
-// Inverse le bit à la position spécifiée
-pub fn toggleBit(byte: u8, pos: u3) u8 {
+/// Invert bit at position `pos` in byte `byte`.
+pub fn notBit(byte: u8, pos: u3) u8 {
     return byte ^ (@as(u8, 1) << pos);
 }
 
-// Vérifie si un bit est allumé
-pub fn isBit(byte: u8, pos: u3) bool {
+/// Toggle bit at position `pos` in byte `byte` with value `val`.
+pub fn toggleBit(byte: u8, pos: u3, val: bool) u8 {
+    return if (val) setBit(byte, pos) else resetBit(byte, pos);
+}
+
+/// Get bit value at position `pos` in byte `byte`.
+pub fn bit(byte: u8, pos: u3) bool {
     return (byte & (@as(u8, 1) << pos)) != 0;
 }
 
