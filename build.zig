@@ -37,6 +37,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    // Adds debugging for unit tests (LLDB).
+    // As this project is a library, it does not have any executable to run *or* debug.
+    const lldb = b.addSystemCommand(&.{
+        "lldb",
+        // add lldb flags before --
+        "--",
+    });
+
+    // appends the unit_tests executable path to the lldb command line
+    lldb.addArtifactArg(lib_unit_tests);
+    // lldb.addArg can add arguments after the executable path
+
+    // the debug step depends on the `lib_unit_tests` step
+    const lldb_step = b.step("debug", "run the tests under lldb");
+    lldb_step.dependOn(&lldb.step);
+
+    // Runs the unit tests.
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
 
     const exe_unit_tests = b.addTest(.{
