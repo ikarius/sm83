@@ -163,7 +163,6 @@ pub const SM83 = struct {
         self.curOp = op;
         op.func(self, op);
         // to be accurate, PC should be incremented *before* op execution
-        self.PC += op.offset;
         self.PC +%= op.offset;
         self.curTs += op.tstates;
     }
@@ -259,6 +258,8 @@ const mainOps = [_]Op{
     Op{ .code = 0x02, .str = "LD", .destType = .reg16ind, .dest = .BC, .srcType = .reg8, .src = .A, .offset = 1, .tstates = 8, .func = ld },
     Op{ .code = 0x03, .str = "INC", .destType = .reg16, .dest = .BC, .srcType = .none, .src = .none, .offset = 1, .tstates = 8, .func = inc16 },
     Op{ .code = 0x04, .str = "INC", .destType = .reg8, .dest = .B, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = inc8 },
+    Op{ .code = 0x05, .str = "DEC", .destType = .reg8, .dest = .B, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = dec8 },
+    Op{ .code = 0x06, .str = "LD", .destType = .reg8, .dest = .B, .srcType = .imm8, .src = .none, .offset = 2, .tstates = 8, .func = ld },
     // ...
 };
 
@@ -357,6 +358,19 @@ fn inc8(CPU: *SM83, op: Op) void {
     CPU.setFlag(Flag.H, hc8(old, value, true));
     CPU.setFlag(Flag.Z, value == 0);
     CPU.setFlag(Flag.N, false);
+    // C is unchanged
+
+    CPU.setR8(op.dest, value);
+}
+
+fn dec8(CPU: *SM83, op: Op) void {
+    var value = CPU.r8(op.dest);
+    const old = value;
+    value -%= 1;
+
+    CPU.setFlag(Flag.H, hc8(old, value, false));
+    CPU.setFlag(Flag.Z, value == 0);
+    CPU.setFlag(Flag.N, true);
     // C is unchanged
 
     CPU.setR8(op.dest, value);
