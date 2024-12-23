@@ -4,7 +4,7 @@ const expectEqual = std.testing.expectEqual;
 
 const word = @import("logic.zig").word;
 
-const SM83 = @import("SM83.zig");
+const SM83 = @import("SM83.zig").SM83;
 
 // This file reads a serie of JSON files,
 // each containing 1000 tests for a given SM83 instruction.
