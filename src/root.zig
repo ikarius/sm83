@@ -360,9 +360,16 @@ test "misc op: INC BC" {
     try expectEqual(0x0000, CPU.BC);
 }
 
+/// Increments 8 bit registers, handles flags.
 fn inc8(CPU: *SM83, op: Op) void {
     var value = CPU.r8(op.dest);
+    const old = value;
     value +%= 1;
+
+    CPU.setFlag(Flag.H, hc8(old, value, true));
+    CPU.setFlag(Flag.Z, value == 0);
+    CPU.setFlag(Flag.N, false);
+    // C is unchanged
 
     CPU.setR8(op.dest, value);
 }
