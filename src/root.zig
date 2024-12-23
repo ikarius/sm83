@@ -38,16 +38,6 @@ pub const SM83 = struct {
     // accumulated t-states
     curTs: u32 = 0,
 
-    pub fn init(allocator: std.mem.Allocator) !*SM83 {
-        const self = try allocator.create(SM83);
-        self.reset();
-        return self;
-    }
-
-    pub fn deinit(self: *SM83, allocator: std.mem.Allocator) void {
-        allocator.destroy(self);
-    }
-
     // 8 bit registers can't be accessed directly
 
     pub fn A(self: SM83) u8 {
@@ -185,8 +175,7 @@ pub const SM83 = struct {
 };
 
 test "CPU imm16" {
-    var CPU = try SM83.init(std.testing.allocator);
-    defer CPU.deinit(std.testing.allocator);
+    var CPU = SM83{};
 
     CPU.mem[0] = 0x00;
     CPU.mem[1] = 0x34;
@@ -196,8 +185,7 @@ test "CPU imm16" {
 }
 
 test "CPU imm8" {
-    var CPU = try SM83.init(std.testing.allocator);
-    defer CPU.deinit(std.testing.allocator);
+    var CPU = SM83{};
 
     CPU.mem[0] = 0x00;
     CPU.mem[1] = 0x42;
@@ -308,24 +296,24 @@ fn ld(CPU: *SM83, op: Op) void {
 }
 
 test "misc op: LD BC,1234H" {
-    var CPU = try SM83.init(std.testing.allocator);
-    defer CPU.deinit(std.testing.allocator);
+    var CPU = SM83{};
 
     CPU.mem[0] = 0x01;
     CPU.mem[1] = 0x34;
     CPU.mem[2] = 0x12;
-    ld(CPU, mainOps[1]);
+
+    ld(&CPU, mainOps[1]);
 
     try expectEqual(0x1234, CPU.BC);
 }
 
 test "misc op: LD (BC),A" {
-    var CPU = try SM83.init(std.testing.allocator);
-    defer CPU.deinit(std.testing.allocator);
+    var CPU = SM83{};
 
     CPU.setR8(.A, 0x42);
     CPU.BC = 0x1234;
-    ld(CPU, mainOps[2]);
+
+    ld(&CPU, mainOps[2]);
 
     try expectEqual(0x42, CPU.mem[CPU.BC]);
 }
@@ -346,8 +334,7 @@ fn dec16(CPU: *SM83, op: Op) void {
 }
 
 test "misc op: INC BC" {
-    var CPU = try SM83.init(std.testing.allocator);
-    defer CPU.deinit(std.testing.allocator);
+    var CPU = SM83{};
 
     CPU.BC = 0x1233;
     CPU.exec(mainOps[3]);

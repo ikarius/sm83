@@ -123,8 +123,7 @@ fn testOpNumber(opNumber: u8) !void {
     const testSuite = try parseJsonFile(allocator, filePath);
     defer testSuite.deinit();
 
-    const CPU = try SM83.init(allocator);
-    defer CPU.deinit(allocator);
+    var CPU = SM83{};
 
     for (testSuite.value, 0..) |optest, i| {
         std.debug.print("Running Test number {d}: {s}\n", .{ i + 1, optest.name });
@@ -132,7 +131,7 @@ fn testOpNumber(opNumber: u8) !void {
         std.debug.print("initial: {any}\n", .{optest.initial});
         std.debug.print("final: {any}\n", .{optest.final});
 
-        try checkCPUState(CPU, optest);
+        try checkCPUState(&CPU, optest);
     }
 }
 
@@ -142,4 +141,6 @@ test "Open test file by number" {
     // try testOpNumber(0x02);
     // try testOpNumber(0x03);
     try testOpNumber(0x04);
+    try testOpNumber(0x05);
+    try testOpNumber(0x06);
 }
