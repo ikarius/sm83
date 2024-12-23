@@ -19,160 +19,161 @@ const lsb_index = if (ENDIAN == std.builtin.Endian.little) 0 else 1;
 ///
 /// registers + mem + internal switches
 /// and some logical functions related to registers logic
-pub const SM83 = struct {
-    // The SM83 is a simplified Z80, registers will be handled as 16b by default.
-    AF: u16 = 0, // Acc + Flags
-    BC: u16 = 0,
-    DE: u16 = 0,
-    HL: u16 = 0,
-    SP: u16 = 0, // Stack pointer
-    PC: u16 = 0, // Program counter
+const SM83 = @This();
 
-    // This can only be an *image* of the "real" memory,
-    // it is only a flat 64kb not taking ROM or memory mappers into account.
-    // Memory is not initialized by default
-    mem: [1024 * 64]u8 = undefined,
+// The SM83 is a simplified Z80, registers will be handled as 16b by default.
+AF: u16 = 0, // Acc + Flags
+BC: u16 = 0,
+DE: u16 = 0,
+HL: u16 = 0,
+SP: u16 = 0, // Stack pointer
+PC: u16 = 0, // Program counter
 
-    // current operation
-    curOp: Op = undefined,
-    // accumulated t-states
-    curTs: u32 = 0,
+// This can only be an *image* of the "real" memory,
+// it is only a flat 64kb not taking ROM or memory mappers into account.
+// Memory is not initialized by default
+mem: [1024 * 64]u8 = undefined,
 
-    // 8 bit registers can't be accessed directly
+// current operation
+curOp: Op = undefined,
+// accumulated t-states
+curTs: u32 = 0,
 
-    pub fn A(self: SM83) u8 {
-        return MSB(self.AF);
+// 8 bit registers can't be accessed directly
+
+pub fn A(self: SM83) u8 {
+    return MSB(self.AF);
+}
+
+pub fn B(self: SM83) u8 {
+    return MSB(self.BC);
+}
+
+pub fn C(self: SM83) u8 {
+    return LSB(self.BC);
+}
+
+pub fn D(self: SM83) u8 {
+    return MSB(self.DE);
+}
+
+pub fn E(self: SM83) u8 {
+    return LSB(self.DE);
+}
+
+pub fn F(self: SM83) u8 {
+    return LSB(self.AF);
+}
+
+pub fn H(self: SM83) u8 {
+    return MSB(self.HL);
+}
+
+pub fn L(self: SM83) u8 {
+    return LSB(self.HL);
+}
+
+/// Reset the CPU : all registers to 0, memory flushed and reset count of t-states.
+pub fn reset(self: *SM83) void {
+    self.AF = 0;
+    self.BC = 0;
+    self.DE = 0;
+    self.HL = 0;
+    self.SP = 0;
+    self.PC = 0;
+
+    for (self.mem) |i| {
+        self.mem[i] = 0;
     }
 
-    pub fn B(self: SM83) u8 {
-        return MSB(self.BC);
+    self.curOp = undefined;
+    self.curTs = 0;
+}
+
+/// Get the immediate 16 bit value after the current instruction.
+pub fn imm16(self: SM83) u16 {
+    return @as(u16, self.mem[self.PC + 2]) << 8 | self.mem[self.PC + 1];
+}
+
+/// Get the immediate 8 bit value after the current instruction.
+pub fn imm8(self: SM83) u8 {
+    return self.mem[self.PC + 1];
+}
+
+// 8 bit registers can't be set directly
+// but can be set by "reflection" with `OpTarget`.
+
+pub fn setR8(self: *SM83, reg: OpTarget, val: u8) void {
+    switch (reg) {
+        .B => self.BC = setMSB(self.BC, val),
+        .C => self.BC = setLSB(self.BC, val),
+        .D => self.DE = setMSB(self.DE, val),
+        .E => self.DE = setLSB(self.DE, val),
+        .H => self.HL = setMSB(self.HL, val),
+        .L => self.HL = setLSB(self.HL, val),
+        .A => self.AF = setMSB(self.AF, val),
+        else => unreachable,
     }
+}
 
-    pub fn C(self: SM83) u8 {
-        return LSB(self.BC);
+pub fn r8(self: SM83, reg: OpTarget) u8 {
+    return switch (reg) {
+        .A => MSB(self.AF),
+        .B => MSB(self.BC),
+        .C => LSB(self.BC),
+        .D => MSB(self.DE),
+        .E => LSB(self.DE),
+        .H => MSB(self.HL),
+        .L => LSB(self.HL),
+        else => unreachable,
+    };
+}
+
+// 16 bits registers can be accessed directly
+// or by "reflection" with OpTarget
+
+pub fn r16(self: SM83, reg: OpTarget) u16 {
+    return switch (reg) {
+        .AF => self.AF, // FIXME: probably useless
+        .BC => self.BC,
+        .DE => self.DE,
+        .HL => self.HL,
+        .SP => self.SP,
+        else => unreachable,
+    };
+}
+
+pub fn setR16(self: *SM83, reg: OpTarget, val: u16) void {
+    switch (reg) {
+        .BC => self.BC = val,
+        .DE => self.BC = val,
+        .HL => self.BC = val,
+        .SP => self.BC = val,
+        else => unreachable,
     }
+}
 
-    pub fn D(self: SM83) u8 {
-        return MSB(self.DE);
-    }
+/// Set a flag on register F.
+fn setFlag(self: *SM83, cf: Flag, val: bool) void {
+    self.AF = self.AF & 0xff00 | toggleBit(self.F(), @intFromEnum(cf), val);
+}
 
-    pub fn E(self: SM83) u8 {
-        return LSB(self.DE);
-    }
+/// Execute an operation.
+pub fn exec(self: *SM83, op: Op) void {
+    // exec wraps op execution, PC update and timing calculations
+    self.curOp = op;
+    op.func(self, op);
+    // to be accurate, PC should be incremented *before* op execution
+    self.PC +%= op.offset;
+    self.curTs += op.tstates;
+}
 
-    pub fn F(self: SM83) u8 {
-        return LSB(self.AF);
-    }
-
-    pub fn H(self: SM83) u8 {
-        return MSB(self.HL);
-    }
-
-    pub fn L(self: SM83) u8 {
-        return LSB(self.HL);
-    }
-
-    /// Reset the CPU : all registers to 0, memory flushed and reset count of t-states.
-    pub fn reset(self: *SM83) void {
-        self.AF = 0;
-        self.BC = 0;
-        self.DE = 0;
-        self.HL = 0;
-        self.SP = 0;
-        self.PC = 0;
-
-        for (self.mem) |i| {
-            self.mem[i] = 0;
-        }
-
-        self.curOp = undefined;
-        self.curTs = 0;
-    }
-
-    /// Get the immediate 16 bit value after the current instruction.
-    pub fn imm16(self: SM83) u16 {
-        return @as(u16, self.mem[self.PC + 2]) << 8 | self.mem[self.PC + 1];
-    }
-
-    /// Get the immediate 8 bit value after the current instruction.
-    pub fn imm8(self: SM83) u8 {
-        return self.mem[self.PC + 1];
-    }
-
-    // 8 bit registers can't be set directly
-    // but can be set by "reflection" with `OpTarget`.
-
-    pub fn setR8(self: *SM83, reg: OpTarget, val: u8) void {
-        switch (reg) {
-            .B => self.BC = setMSB(self.BC, val),
-            .C => self.BC = setLSB(self.BC, val),
-            .D => self.DE = setMSB(self.DE, val),
-            .E => self.DE = setLSB(self.DE, val),
-            .H => self.HL = setMSB(self.HL, val),
-            .L => self.HL = setLSB(self.HL, val),
-            .A => self.AF = setMSB(self.AF, val),
-            else => unreachable,
-        }
-    }
-
-    pub fn r8(self: SM83, reg: OpTarget) u8 {
-        return switch (reg) {
-            .A => MSB(self.AF),
-            .B => MSB(self.BC),
-            .C => LSB(self.BC),
-            .D => MSB(self.DE),
-            .E => LSB(self.DE),
-            .H => MSB(self.HL),
-            .L => LSB(self.HL),
-            else => unreachable,
-        };
-    }
-
-    // 16 bits registers can be accessed directly
-    // or by "reflection" with OpTarget
-
-    pub fn r16(self: SM83, reg: OpTarget) u16 {
-        return switch (reg) {
-            .AF => self.AF, // FIXME: probably useless
-            .BC => self.BC,
-            .DE => self.DE,
-            .HL => self.HL,
-            .SP => self.SP,
-            else => unreachable,
-        };
-    }
-
-    pub fn setR16(self: *SM83, reg: OpTarget, val: u16) void {
-        switch (reg) {
-            .BC => self.BC = val,
-            .DE => self.BC = val,
-            .HL => self.BC = val,
-            .SP => self.BC = val,
-            else => unreachable,
-        }
-    }
-
-    /// Set a flag on register F.
-    fn setFlag(self: *SM83, cf: Flag, val: bool) void {
-        self.AF = self.AF & 0xff00 | toggleBit(self.F(), @intFromEnum(cf), val);
-    }
-
-    /// Execute an operation.
-    pub fn exec(self: *SM83, op: Op) void {
-        // exec wraps op execution, PC update and timing calculations
-        self.curOp = op;
-        op.func(self, op);
-        // to be accurate, PC should be incremented *before* op execution
-        self.PC +%= op.offset;
-        self.curTs += op.tstates;
-    }
-
-    /// Execute an operation at a specific address.
-    pub fn execAt(self: *SM83, addr: u16) void {
-        // TODO: maybe inlining would be a good idea (or not)
-        self.exec(mainOps[self.mem[addr]]);
-    }
-};
+/// Execute an operation at a specific address.
+pub fn execAt(self: *SM83, addr: u16) void {
+    // TODO: maybe inlining would be a good idea (or not)
+    self.exec(mainOps[self.mem[addr]]);
+}
+//};
 
 test "CPU imm16" {
     var CPU = SM83{};
@@ -252,6 +253,7 @@ const Op = struct {
 
 /// SM83 operation table
 /// a complete list of main operations.
+/// FIXME: create a decode() function and simplify
 const mainOps = [_]Op{
     Op{ .code = 0x00, .str = "NOP", .destType = .none, .dest = .none, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = nop },
     Op{ .code = 0x01, .str = "LD", .destType = .reg16, .dest = .BC, .srcType = .imm16, .src = .none, .offset = 3, .tstates = 12, .func = ld },
