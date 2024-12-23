@@ -171,7 +171,7 @@ pub const SM83 = struct {
     /// Execute an operation at a specific address.
     pub fn execAt(self: *SM83, addr: u16) void {
         // TODO: maybe inlining would be a good idea (or not)
-        self.exec(mainOps[self.mem[addr]]);
+        self.exec(decode(self.mem[addr]));
     }
 };
 
@@ -240,7 +240,7 @@ const OpTarget = enum { none, A, B, C, D, E, H, L, AF, BC, DE, HL, SP, HLI, HLD,
 /// - source pair : dest_type, dest
 /// - destination pair : src_type, src
 const Op = struct {
-    code: ?u8,
+    code: ?u8 = null, // deprecate ?
     str: []const u8,
     destType: OperandType = .none,
     dest: OpTarget = .none,
@@ -265,17 +265,63 @@ const mainOps = [_]Op{
     // ...
 };
 
+fn R8PlaceholderDest(opCode: u8) OpTarget {
+    // for destination
+    return switch ((opCode & 0b00111000) >> 3) {
+        0 => .B,
+        1 => .C,
+        2 => .D,
+        3 => .E,
+        4 => .H,
+        5 => .L,
+        7 => .A,
+        else => unreachable,
+    };
+}
+
+fn R8PlaceholderSrc(opCode: u8) OpTarget {
+    // for (some) source
+    return switch (opCode & 0b00000111) {
+        0 => .B,
+        1 => .C,
+        2 => .D,
+        3 => .E,
+        4 => .H,
+        5 => .L,
+        7 => .A,
+        else => unreachable,
+    };
+}
+
+fn R16Placeholder(opCode: u8) OpTarget {
+    return switch (opCode & 0b00111000) {
+        0 => .BC,
+        1 => .DE,
+        2 => .HL,
+        3 => .SP,
+        else => unreachable,
+    };
+}
+
 fn decode(opCode: u8) Op {
     // based on current PC value
     // oddly enough zls doesn't go to definition on a flat structure file
     return switch (opCode) {
-        0x00 => Op{ .code = 0x00, .str = "NOP", .destType = .none, .dest = .none, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = {} },
-        0x01 => Op{ .code = 0x01, .str = "LD", .destType = .reg16, .dest = .BC, .srcType = .imm16, .src = .none, .offset = 3, .tstates = 12, .func = ld },
-        0x02 => Op{ .code = 0x02, .str = "LD", .destType = .reg16ind, .dest = .BC, .srcType = .reg8, .src = .A, .offset = 1, .tstates = 8, .func = ld },
-        0x03 => Op{ .code = 0x03, .str = "INC", .destType = .reg16, .dest = .BC, .srcType = .none, .src = .none, .offset = 1, .tstates = 8, .func = inc16 },
-        0x04 => Op{ .code = 0x04, .str = "INC", .destType = .reg8, .dest = .B, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = inc8 },
-        0x05 => Op{ .code = 0x05, .str = "DEC", .destType = .reg8, .dest = .B, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = dec8 },
-        0x06 => Op{ .code = 0x06, .str = "LD", .destType = .reg8, .dest = .B, .srcType = .imm8, .src = .none, .offset = 2, .tstates = 8, .func = ld },
+        0x00 => Op{ .code = 0x00, .str = "NOP", .destType = .none, .dest = .none, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = nop },
+        // LD r16,imm16
+        0x01, 0x11, 0x21, 0x31 => Op{ .code = 0x01, .str = "LD", .destType = .reg16, .dest = R16Placeholder(opCode), .srcType = .imm16, .src = .none, .offset = 3, .tstates = 12, .func = ld },
+        // LD [r16],A
+        0x02, 0x12, 0x77 => Op{ .code = 0x02, .str = "LD", .destType = .reg16ind, .dest = R16Placeholder(opCode), .srcType = .reg8, .src = .A, .offset = 1, .tstates = 8, .func = ld },
+        // INC r16
+        0x03, 0x13, 0x23, 0x33 => Op{ .code = 0x03, .str = "INC", .destType = .reg16, .dest = R16Placeholder(opCode), .srcType = .none, .src = .none, .offset = 1, .tstates = 8, .func = inc16 },
+        // INC r8
+        0x04, 0x14, 0x24, 0x0c, 0x1c, 0x2c, 0x3c => Op{ .str = "INC", .destType = .reg8, .dest = R8PlaceholderDest(opCode), .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = inc8 },
+        // DEC r8
+        0x05, 0x15, 0x25, 0x0d, 0x1d, 0x2d, 0x3d => Op{ .str = "DEC", .destType = .reg8, .dest = R8PlaceholderDest(opCode), .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = dec8 },
+        // LD r8, imm8
+        0x06, 0x16, 0x26, 0x0e, 0x1e, 0x2e, 0x3e => Op{ .str = "LD", .destType = .reg8, .dest = R8PlaceholderDest(opCode), .srcType = .imm8, .src = .none, .offset = 2, .tstates = 8, .func = ld },
+        // LD r8,r8
+        0x40...0x45, 0x47...0x4d, 0x50...0x55, 0x57...0x5d, 0x60...0x65, 0x67...0x6d, 0x0f, 0x1f, 0x2f, 0x3f => Op{ .str = "LD", .destType = .reg8, .dest = R8PlaceholderDest(opCode), .srcType = .reg8, .src = R8PlaceholderSrc(opCode), .offset = 1, .tstates = 4, .func = ld },
         else => unreachable,
     };
 }
