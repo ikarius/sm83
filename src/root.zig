@@ -164,6 +164,7 @@ pub const SM83 = struct {
         op.func(self, op);
         // to be accurate, PC should be incremented *before* op execution
         self.PC += op.offset;
+        self.PC +%= op.offset;
         self.curTs += op.tstates;
     }
 
