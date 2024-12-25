@@ -8,6 +8,7 @@ const setMSB = logic.setMSB;
 const LSB = logic.LSB;
 const MSB = logic.MSB;
 const hc8 = logic.hc8;
+const hc16 = logic.hc16;
 const toggleBit = logic.toggleBit;
 
 // handling endianness for register pointers
@@ -103,7 +104,7 @@ pub const SM83 = struct {
     // 8 bit registers can't be set directly
     // but can be set by "reflection" with `OpTarget`.
 
-    pub fn setR8(self: *SM83, reg: OpTarget, val: u8) void {
+    pub fn setR8(self: *SM83, reg: Target, val: u8) void {
         switch (reg) {
             .B => self.BC = setMSB(self.BC, val),
             .C => self.BC = setLSB(self.BC, val),
@@ -116,7 +117,7 @@ pub const SM83 = struct {
         }
     }
 
-    pub fn r8(self: SM83, reg: OpTarget) u8 {
+    pub fn r8(self: SM83, reg: Target) u8 {
         return switch (reg) {
             .A => MSB(self.AF),
             .B => MSB(self.BC),
@@ -125,6 +126,7 @@ pub const SM83 = struct {
             .E => LSB(self.DE),
             .H => MSB(self.HL),
             .L => LSB(self.HL),
+            ._HL_ => self.mem[self.HL],
             else => unreachable,
         };
     }
@@ -132,18 +134,17 @@ pub const SM83 = struct {
     // 16 bits registers can be accessed directly
     // or by "reflection" with OpTarget
 
-    pub fn r16(self: SM83, reg: OpTarget) u16 {
+    pub fn r16(self: SM83, reg: Target) u16 {
         return switch (reg) {
-            .AF => self.AF, // FIXME: probably useless
             .BC => self.BC,
             .DE => self.DE,
-            .HL => self.HL,
+            .HL, .HLd, .HLi => self.HL,
             .SP => self.SP,
             else => unreachable,
         };
     }
 
-    pub fn setR16(self: *SM83, reg: OpTarget, val: u16) void {
+    pub fn setR16(self: *SM83, reg: Target, val: u16) void {
         switch (reg) {
             .BC => self.BC = val,
             .DE => self.BC = val,
@@ -156,6 +157,11 @@ pub const SM83 = struct {
     /// Set a flag on register F.
     fn setFlag(self: *SM83, cf: Flag, val: bool) void {
         self.AF = self.AF & 0xff00 | toggleBit(self.F(), @intFromEnum(cf), val);
+    }
+
+    /// Return current operation code (byte at address PC).
+    fn opCode(self: SM83) u8 {
+        return self.mem[self.PC];
     }
 
     /// Execute an operation.
@@ -232,41 +238,45 @@ const OperandType = enum {
     bit,
 };
 
-const OpTarget = enum { none, A, B, C, D, E, H, L, AF, BC, DE, HL, SP, HLI, HLD, _0, _1, _2, _3, _4, _5, _6, _7, IMM8, IMM16 };
+// FIXNE: none useful anymore?
+const Target = enum { none, A, B, C, D, E, H, L, _HL_, AF, BC, DE, HL, SP, HLi, HLd };
 
-/// CPU operations :
-///
-/// the structure of a CPU operation (op) is freely inspired from the one of Realboy.
-/// - source pair : dest_type, dest
-/// - destination pair : src_type, src
+/// A CPU operation has 0, 1 or 2 args:
+/// - `none`: no argument. No argument for op is `src` and `dest` equal `none`
+/// - `imm8` and `imm16`: immediate following value in memory, 8 or 16 bit wide
+/// - `r8` and `r16`: registers of the CPU
+/// - `r16stk`: 16 bit register used for a stack operation
+/// - `r16mem`: address referenced by a 16 bit register (f.i. [HL])
+/// - `bit`: operation on a bit
+/// - `flag`: operation using flags (f.i. jump/calls)
+const Arg = enum {
+    none,
+    imm8,
+    imm16,
+    r8,
+    r16,
+    r16stk,
+    r16mem,
+    bit,
+    flag,
+};
+
+/// An `Op` object is the minimal representation of a CPU operation:
+/// - `name`: useful for a str representation (disassembly)
+/// - `func`: action performed
+/// - `src` and `dest`: 0, 1, or 2 `Arg` objects as op arguments
+/// - `offset`: PC increment after op
+/// - `tstates`: duration in ticks (not cycles)
 const Op = struct {
-    code: ?u8 = null, // deprecate ?
     str: []const u8,
-    destType: OperandType = .none,
-    dest: OpTarget = .none,
-    srcType: OperandType = .none,
-    src: OpTarget = .none,
+    dest: Arg,
+    src: Arg,
     offset: u2,
-    tstates: u4,
+    tstates: u5,
     func: *const fn (*SM83, Op) void,
 };
 
-/// SM83 operation table
-/// a complete list of main operations.
-/// FIXME: create a decode() function and simplify
-const mainOps = [_]Op{
-    Op{ .code = 0x00, .str = "NOP", .destType = .none, .dest = .none, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = nop },
-    Op{ .code = 0x01, .str = "LD", .destType = .reg16, .dest = .BC, .srcType = .imm16, .src = .none, .offset = 3, .tstates = 12, .func = ld },
-    Op{ .code = 0x02, .str = "LD", .destType = .reg16ind, .dest = .BC, .srcType = .reg8, .src = .A, .offset = 1, .tstates = 8, .func = ld },
-    Op{ .code = 0x03, .str = "INC", .destType = .reg16, .dest = .BC, .srcType = .none, .src = .none, .offset = 1, .tstates = 8, .func = inc16 },
-    Op{ .code = 0x04, .str = "INC", .destType = .reg8, .dest = .B, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = inc8 },
-    Op{ .code = 0x05, .str = "DEC", .destType = .reg8, .dest = .B, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = dec8 },
-    Op{ .code = 0x06, .str = "LD", .destType = .reg8, .dest = .B, .srcType = .imm8, .src = .none, .offset = 2, .tstates = 8, .func = ld },
-    // ...
-};
-
-fn R8PlaceholderDest(opCode: u8) OpTarget {
-    // for destination
+fn R8PlaceholderDest(opCode: u8) Target {
     return switch ((opCode & 0b00111000) >> 3) {
         0 => .B,
         1 => .C,
@@ -274,13 +284,13 @@ fn R8PlaceholderDest(opCode: u8) OpTarget {
         3 => .E,
         4 => .H,
         5 => .L,
+        6 => ._HL_,
         7 => .A,
         else => unreachable,
     };
 }
 
-fn R8PlaceholderSrc(opCode: u8) OpTarget {
-    // for (some) source
+fn R8PlaceholderSrc(opCode: u8) Target {
     return switch (opCode & 0b00000111) {
         0 => .B,
         1 => .C,
@@ -288,13 +298,14 @@ fn R8PlaceholderSrc(opCode: u8) OpTarget {
         3 => .E,
         4 => .H,
         5 => .L,
+        6 => ._HL_,
         7 => .A,
         else => unreachable,
     };
 }
 
-fn R16Placeholder(opCode: u8) OpTarget {
-    return switch (opCode & 0b00111000) {
+fn _r16(opCode: u8) Target {
+    return switch ((opCode & 0b00110000) >> 4) {
         0 => .BC,
         1 => .DE,
         2 => .HL,
@@ -303,25 +314,59 @@ fn R16Placeholder(opCode: u8) OpTarget {
     };
 }
 
+fn _r16stk(opCode: u8) Target {
+    return switch (opCode & 0b00111000) {
+        0 => .BC,
+        1 => .DE,
+        2 => .HL,
+        3 => .AF,
+        else => unreachable,
+    };
+}
+
+fn _r16mem(opCode: u8) Target {
+    return switch ((opCode & 0b00110000) >> 4) {
+        0 => .BC,
+        1 => .DE,
+        2 => .HLi,
+        3 => .HLd,
+        else => unreachable,
+    };
+}
+
+fn _target(opCode: u8, arg: Arg, argIsSrc: bool) Target {
+    return switch (arg) {
+        .r8 => if (argIsSrc) R8PlaceholderSrc(opCode) else R8PlaceholderDest(opCode),
+        .r16 => _r16(opCode),
+        else => unreachable,
+    };
+}
+
+fn _src(opCode: u8, arg: Arg) Target {
+    return _target(opCode, arg, true);
+}
+
+fn _dest(opCode: u8, arg: Arg) Target {
+    return _target(opCode, arg, false);
+}
+
 fn decode(opCode: u8) Op {
-    // based on current PC value
-    // oddly enough zls doesn't go to definition on a flat structure file
     return switch (opCode) {
-        0x00 => Op{ .code = 0x00, .str = "NOP", .destType = .none, .dest = .none, .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = nop },
-        // LD r16,imm16
-        0x01, 0x11, 0x21, 0x31 => Op{ .code = 0x01, .str = "LD", .destType = .reg16, .dest = R16Placeholder(opCode), .srcType = .imm16, .src = .none, .offset = 3, .tstates = 12, .func = ld },
-        // LD [r16],A
-        0x02, 0x12, 0x77 => Op{ .code = 0x02, .str = "LD", .destType = .reg16ind, .dest = R16Placeholder(opCode), .srcType = .reg8, .src = .A, .offset = 1, .tstates = 8, .func = ld },
-        // INC r16
-        0x03, 0x13, 0x23, 0x33 => Op{ .code = 0x03, .str = "INC", .destType = .reg16, .dest = R16Placeholder(opCode), .srcType = .none, .src = .none, .offset = 1, .tstates = 8, .func = inc16 },
-        // INC r8
-        0x04, 0x14, 0x24, 0x0c, 0x1c, 0x2c, 0x3c => Op{ .str = "INC", .destType = .reg8, .dest = R8PlaceholderDest(opCode), .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = inc8 },
-        // DEC r8
-        0x05, 0x15, 0x25, 0x0d, 0x1d, 0x2d, 0x3d => Op{ .str = "DEC", .destType = .reg8, .dest = R8PlaceholderDest(opCode), .srcType = .none, .src = .none, .offset = 1, .tstates = 4, .func = dec8 },
-        // LD r8, imm8
-        0x06, 0x16, 0x26, 0x0e, 0x1e, 0x2e, 0x3e => Op{ .str = "LD", .destType = .reg8, .dest = R8PlaceholderDest(opCode), .srcType = .imm8, .src = .none, .offset = 2, .tstates = 8, .func = ld },
-        // LD r8,r8
-        0x40...0x45, 0x47...0x4d, 0x50...0x55, 0x57...0x5d, 0x60...0x65, 0x67...0x6d, 0x0f, 0x1f, 0x2f, 0x3f => Op{ .str = "LD", .destType = .reg8, .dest = R8PlaceholderDest(opCode), .srcType = .reg8, .src = R8PlaceholderSrc(opCode), .offset = 1, .tstates = 4, .func = ld },
+        // current opcode is [PC]: not necessary to store or pass it around
+        0x00 => Op{ .str = "NOP", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = nop },
+        0x01, 0x11, 0x21, 0x31 => Op{ .str = "LD", .dest = .r16, .src = .imm16, .offset = 3, .tstates = 12, .func = ld },
+        0x02, 0x12, 0x22, 0x32 => Op{ .str = "LD", .dest = .r16mem, .src = .none, .offset = 1, .tstates = 8, .func = ld_a },
+        0x77 => Op{ .str = "LD", .dest = .r16mem, .src = .none, .offset = 1, .tstates = 8, .func = ld },
+        0x03, 0x13, 0x23, 0x33 => Op{ .str = "INC", .dest = .r16, .src = .none, .offset = 1, .tstates = 8, .func = inc16 },
+        0x04, 0x14, 0x24, 0x0c, 0x1c, 0x2c, 0x3c => Op{ .str = "INC", .dest = .r8, .src = .none, .offset = 1, .tstates = 4, .func = inc8 },
+        0x05, 0x15, 0x25, 0x0d, 0x1d, 0x2d, 0x3d => Op{ .str = "DEC", .dest = .r8, .src = .none, .offset = 1, .tstates = 4, .func = dec8 },
+        0x06, 0x16, 0x26, 0x0e, 0x1e, 0x2e, 0x3e => Op{ .str = "LD", .dest = .r8, .src = .imm8, .offset = 2, .tstates = 8, .func = ld },
+        0x07 => Op{ .str = "RLCA", .dest = .none, .src = .none, .offset = 1, .tstates = 8, .func = rlc },
+        0x08 => Op{ .str = "LD", .dest = .none, .src = .none, .offset = 3, .tstates = 20, .func = ld_imm16_sp },
+        0x09, 0x19, 0x29, 0x39 => Op{ .str = "LD", .dest = .r16, .src = .r16, .offset = 1, .tstates = 8, .func = add_hl_r16 },
+        0x0a, 0x1a, 0x2a, 0x3a => Op{ .str = "LD A,", .dest = .none, .src = .r16mem, .offset = 1, .tstates = 8, .func = ld_a_r16mem },
+        0x40...0x45, 0x47...0x4d, 0x50...0x55, 0x57...0x5d, 0x60...0x65, 0x67...0x6d, 0x0f, 0x1f, 0x2f, 0x3f => Op{ .str = "LD", .dest = .r8, .src = .r8, .offset = 1, .tstates = 4, .func = ld },
+        // ...
         else => unreachable,
     };
 }
@@ -330,64 +375,53 @@ fn decode(opCode: u8) Op {
 
 fn nop(_: *SM83, _: Op) void {}
 
-fn ld(CPU: *SM83, op: Op) void {
-    // a beefy one to start with : LD ops are almost half of the full operation set
-    switch (op.srcType) {
-        // process immediate register ops :
+fn ld_a(cpu: *SM83, _: Op) void {
+    // special load case : LD [r16mem],A
+    // src does not conform to any mapping, it must be treated as a distinct op
+    // (or with an ugly hack)
+    const opCode = cpu.mem[cpu.PC];
+    cpu.mem[cpu.r16(_r16mem(opCode))] = cpu.A();
+}
+
+fn ld(cpu: *SM83, op: Op) void {
+    const opCode = cpu.mem[cpu.PC];
+    switch (op.src) {
         .imm8 => {
-            CPU.setR8(op.dest, CPU.imm8());
+            // LD r8,imm8
+            cpu.setR8(_dest(opCode, op.dest), cpu.imm8());
         },
         .imm16 => {
-            CPU.setR16(op.dest, CPU.imm16());
+            // LD r16, imm16
+            cpu.setR16(_dest(opCode, op.dest), cpu.imm16());
         },
-        .reg8 => {
-            switch (op.destType) {
-                .reg8 => {
-                    // TODO: test
-                    CPU.setR8(op.dest, CPU.r8(op.src));
+        .r8 => {
+            switch (op.dest) {
+                .r8 => {
+                    // LD r8, r8
+                    cpu.setR8(_target(opCode, op.dest, false), cpu.r8(_src(opCode, op.src)));
                 },
-                .reg16ind => {
-                    CPU.mem[CPU.r16(op.dest)] = CPU.r8(op.src);
+                .r16mem => {
+                    // FIXME: LD [r16], r8
+                    cpu.mem[cpu.r16(_r16(opCode))] = cpu.r8(_dest(opCode, op.src));
                 },
                 else => unreachable,
             }
         },
-        .reg16 => {
-            // FIXME: test & enforce only one case ? (LD SP, HL)
-            CPU.setR16(op.dest, CPU.r16(op.src));
+        .r16mem => {
+            // only LD A,
         },
         else => unreachable,
     }
-}
-
-test "misc op: LD BC,1234H" {
-    var CPU = SM83{};
-
-    CPU.mem[0] = 0x01;
-    CPU.mem[1] = 0x34;
-    CPU.mem[2] = 0x12;
-
-    ld(&CPU, mainOps[1]);
-
-    try expectEqual(0x1234, CPU.BC);
-}
-
-test "misc op: LD (BC),A" {
-    var CPU = SM83{};
-
-    CPU.setR8(.A, 0x42);
-    CPU.BC = 0x1234;
-
-    ld(&CPU, mainOps[2]);
-
-    try expectEqual(0x42, CPU.mem[CPU.BC]);
 }
 
 /// Increments a 16bit register : no flags handling needed.
 fn inc16(CPU: *SM83, op: Op) void {
     // doesn't check op validity (in op we trust)
     // handle overflow
-    CPU.setR16(op.dest, CPU.r16(op.dest) +% 1);
+    const opCode = CPU.opCode();
+    const target = _target(opCode, op.dest, false);
+
+    CPU.setR16(target, CPU.r16(target) +% 1);
 }
 
 /// Decrements a 16bit register : no flags handling needed.
@@ -395,26 +429,18 @@ fn dec16(CPU: *SM83, op: Op) void {
     // doesn't check op validity (in op we trust)
     // handle overflow
     // FIXME: untested
-    CPU.setR16(op.dest, CPU.r16(op.dest) -% 1);
-}
+    const opCode = CPU.opCode();
+    const target = _target(opCode, op.dest, false);
 
-test "misc op: INC BC" {
-    var CPU = SM83{};
-
-    CPU.BC = 0x1233;
-    CPU.exec(mainOps[3]);
-
-    try expectEqual(0x1234, CPU.BC);
-
-    CPU.BC = 0xFFFF;
-    CPU.exec(mainOps[3]);
-
-    try expectEqual(0x0000, CPU.BC);
+    CPU.setR16(target, CPU.r16(target) -% 1);
 }
 
 /// Increments 8 bit registers, handles flags.
 fn inc8(CPU: *SM83, op: Op) void {
-    var value = CPU.r8(op.dest);
+    const opCode = CPU.opCode();
+    const target = _target(opCode, op.dest, false);
+
+    var value = CPU.r8(target);
     const old = value;
     value +%= 1;
 
@@ -423,11 +449,14 @@ fn inc8(CPU: *SM83, op: Op) void {
     CPU.setFlag(Flag.N, false);
     // C is unchanged
 
-    CPU.setR8(op.dest, value);
+    CPU.setR8(target, value);
 }
 
 fn dec8(CPU: *SM83, op: Op) void {
-    var value = CPU.r8(op.dest);
+    const opCode = CPU.opCode();
+    const target = _target(opCode, op.dest, false);
+
+    var value = CPU.r8(target);
     const old = value;
     value -%= 1;
 
@@ -436,5 +465,63 @@ fn dec8(CPU: *SM83, op: Op) void {
     CPU.setFlag(Flag.N, true);
     // C is unchanged
 
-    CPU.setR8(op.dest, value);
+    CPU.setR8(target, value);
+}
+
+fn rlc(cpu: *SM83, op: Op) void {
+    // RLC has 2 version RLCA and RLC r8 (with different flag behaviour)
+    switch (op.dest) {
+        .none => {
+            // RLCA : all flags to 0 except Z
+            var r: u9 = @as(u9, cpu.A()) << 1;
+            r = r | (r >> 8);
+            cpu.setR8(.A, @truncate(r));
+            cpu.setFlag(.Z, false);
+            cpu.setFlag(.N, false);
+            cpu.setFlag(.H, false);
+            cpu.setFlag(.C, r & 0x100 > 0);
+        },
+        .r8 => {
+            // RLC r8 : only C and Z affected
+            // // FIXME: test
+            const target = _dest(cpu.opCode(), op.dest);
+            var r: u9 = @as(u9, cpu.r8(target)) << 1;
+            r = r | (r >> 8);
+            cpu.setR8(.A, @truncate(r));
+            cpu.setFlag(.N, false);
+            cpu.setFlag(.H, false);
+            cpu.setFlag(.C, r & 0x100 > 0);
+            cpu.setFlag(.Z, cpu.A() == 0);
+        },
+        else => unreachable,
+    }
+}
+
+fn ld_imm16_sp(cpu: *SM83, _: Op) void {
+    const addr = cpu.imm16();
+    cpu.mem[addr] = LSB(cpu.SP);
+    cpu.mem[addr + 1] = MSB(cpu.SP);
+}
+
+fn add_hl_r16(cpu: *SM83, _: Op) void {
+    const src = cpu.r16(_r16(cpu.opCode()));
+    var result: u17 = @as(u17, cpu.HL);
+    const old = cpu.HL;
+
+    result += src;
+    cpu.HL = @truncate(result);
+
+    cpu.setFlag(.H, hc16(old, cpu.HL, true));
+    cpu.setFlag(.C, (result >> 16) > 0);
+    cpu.setFlag(.N, false);
+}
+
+fn ld_a_r16mem(cpu: *SM83, _: Op) void {
+    const reg = _r16mem(cpu.opCode());
+    cpu.setR8(.A, cpu.mem[cpu.r16(reg)]);
+    switch (reg) {
+        .HLi => cpu.HL += 1,
+        .HLd => cpu.HL -= 1,
+        else => {},
+    }
 }

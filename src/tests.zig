@@ -141,6 +141,8 @@ test "Open test file by number" {
     try testOpNumber(0x04);
     try testOpNumber(0x05);
     try testOpNumber(0x06);
+    try testOpNumber(0x07);
+    try testOpNumber(0x08);
 
     try testOpNumber(0x40);
     try testOpNumber(0x48);
