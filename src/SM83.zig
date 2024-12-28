@@ -147,9 +147,9 @@ pub const SM83 = struct {
     pub fn setR16(self: *SM83, reg: Target, val: u16) void {
         switch (reg) {
             .BC => self.BC = val,
-            .DE => self.BC = val,
-            .HL => self.BC = val,
-            .SP => self.BC = val,
+            .DE => self.DE = val,
+            .HL => self.HL = val,
+            .SP => self.SP = val,
             else => unreachable,
         }
     }
@@ -365,6 +365,7 @@ fn decode(opCode: u8) Op {
         0x08 => Op{ .str = "LD", .dest = .none, .src = .none, .offset = 3, .tstates = 20, .func = ld_imm16_sp },
         0x09, 0x19, 0x29, 0x39 => Op{ .str = "LD", .dest = .r16, .src = .r16, .offset = 1, .tstates = 8, .func = add_hl_r16 },
         0x0a, 0x1a, 0x2a, 0x3a => Op{ .str = "LD A,", .dest = .none, .src = .r16mem, .offset = 1, .tstates = 8, .func = ld_a_r16mem },
+        0x0b, 0x1b, 0x2b, 0x3b => Op{ .str = "DEC", .dest = .r16, .src = .none, .offset = 1, .tstates = 8, .func = dec16 },
         0x40...0x45, 0x47...0x4d, 0x50...0x55, 0x57...0x5d, 0x60...0x65, 0x67...0x6d, 0x0f, 0x1f, 0x2f, 0x3f => Op{ .str = "LD", .dest = .r8, .src = .r8, .offset = 1, .tstates = 4, .func = ld },
         // ...
         else => unreachable,
@@ -415,24 +416,24 @@ fn ld(cpu: *SM83, op: Op) void {
 }
 
 /// Increments a 16bit register : no flags handling needed.
-fn inc16(CPU: *SM83, op: Op) void {
+fn inc16(cpu: *SM83, op: Op) void {
     // doesn't check op validity (in op we trust)
     // handle overflow
-    const opCode = CPU.opCode();
+    const opCode = cpu.opCode();
     const target = _target(opCode, op.dest, false);
 
-    CPU.setR16(target, CPU.r16(target) +% 1);
+    cpu.setR16(target, cpu.r16(target) +% 1);
 }
 
 /// Decrements a 16bit register : no flags handling needed.
-fn dec16(CPU: *SM83, op: Op) void {
+fn dec16(cpu: *SM83, _: Op) void {
     // doesn't check op validity (in op we trust)
     // handle overflow
     // FIXME: untested
-    const opCode = CPU.opCode();
-    const target = _target(opCode, op.dest, false);
+    const opCode = cpu.opCode();
+    const target = _r16(opCode);
 
-    CPU.setR16(target, CPU.r16(target) -% 1);
+    cpu.setR16(target, cpu.r16(target) -% 1);
 }
 
 /// Increments 8 bit registers, handles flags.
