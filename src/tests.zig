@@ -113,7 +113,7 @@ test "Open sample file (NOP)" {
 
 fn testOpNumber(opNumber: u8) !void {
     const allocator = std.testing.allocator;
-    const filePath = std.fmt.allocPrint(allocator, test_path ++ "/{X:0>2}.json", .{opNumber}) catch unreachable;
+    const filePath = std.fmt.allocPrint(allocator, test_path ++ "/{x:0>2}.json", .{opNumber}) catch unreachable;
     defer allocator.free(filePath);
 
     std.debug.print("Testing op file '{s}'\n", .{filePath});
@@ -143,6 +143,8 @@ test "Open test file by number" {
     try testOpNumber(0x06);
     try testOpNumber(0x07);
     try testOpNumber(0x08);
+    try testOpNumber(0x09);
+    try testOpNumber(0x0a);
 
     try testOpNumber(0x40);
     try testOpNumber(0x48);
