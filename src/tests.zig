@@ -116,36 +116,33 @@ fn testOpNumber(opNumber: u8) !void {
     const filePath = std.fmt.allocPrint(allocator, test_path ++ "/{x:0>2}.json", .{opNumber}) catch unreachable;
     defer allocator.free(filePath);
 
-    std.debug.print("Testing op file '{s}'\n", .{filePath});
+    std.debug.print("\nTesting op file '{s}'\n", .{filePath});
 
     const testSuite = try parseJsonFile(allocator, filePath);
     defer testSuite.deinit();
 
-    var CPU = SM83{};
-
     for (testSuite.value, 0..) |optest, i| {
-        std.debug.print("Running Test number {d}: {s}\n", .{ i + 1, optest.name });
-        // std.debug.print("name: {s}\n", .{optest.name});
-        std.debug.print("initial: {any}\n", .{optest.initial});
-        std.debug.print("final: {any}\n", .{optest.final});
+        var CPU = SM83{};
 
-        try checkCPUState(&CPU, optest);
+        std.debug.print("Running Test number {d}: {s}\n", .{ i + 1, optest.name });
+
+        checkCPUState(&CPU, optest) catch |err| {
+            // More details if there is an error:
+            std.debug.print("name: {s}\n", .{optest.name});
+            std.debug.print("initial: {any}\n", .{optest.initial});
+            std.debug.print("final: {any}\n\n", .{optest.final});
+
+            return err;
+        };
     }
 }
 
 test "Open test file by number" {
-    try testOpNumber(0x00);
-    try testOpNumber(0x01);
-    try testOpNumber(0x02);
-    try testOpNumber(0x03);
-    try testOpNumber(0x04);
-    try testOpNumber(0x05);
-    try testOpNumber(0x06);
-    try testOpNumber(0x07);
-    try testOpNumber(0x08);
-    try testOpNumber(0x09);
-    try testOpNumber(0x0a);
+    for (0..0x17) |i| {
+        try testOpNumber(@truncate(i));
+    }
 
+    // Misc tests
     try testOpNumber(0x40);
     try testOpNumber(0x48);
 }
