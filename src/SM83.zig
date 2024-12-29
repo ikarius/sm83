@@ -366,7 +366,8 @@ fn decode(opCode: u8) Op {
         0x09, 0x19, 0x29, 0x39 => Op{ .str = "LD", .dest = .r16, .src = .r16, .offset = 1, .tstates = 8, .func = add_hl_r16 },
         0x0a, 0x1a, 0x2a, 0x3a => Op{ .str = "LD A,", .dest = .none, .src = .r16mem, .offset = 1, .tstates = 8, .func = ld_a_r16mem },
         0x0b, 0x1b, 0x2b, 0x3b => Op{ .str = "DEC", .dest = .r16, .src = .none, .offset = 1, .tstates = 8, .func = dec16 },
-        0x40...0x45, 0x47...0x4d, 0x50...0x55, 0x57...0x5d, 0x60...0x65, 0x67...0x6d, 0x0f, 0x1f, 0x2f, 0x3f => Op{ .str = "LD", .dest = .r8, .src = .r8, .offset = 1, .tstates = 4, .func = ld },
+        0x40...0x45, 0x47...0x4d, 0x50...0x55, 0x57...0x5d, 0x60...0x65, 0x67...0x6d => Op{ .str = "LD", .dest = .r8, .src = .r8, .offset = 1, .tstates = 4, .func = ld },
+        0x0f => Op{ .str = "RRCA", .dest = .none, .src = .none, .offset = 1, .tstates = 8, .func = rrc },
         // ...
         else => unreachable,
     };
@@ -474,24 +475,25 @@ fn rlc(cpu: *SM83, op: Op) void {
     switch (op.dest) {
         .none => {
             // RLCA : all flags to 0 except Z
-            var r: u9 = @as(u9, cpu.A()) << 1;
-            r = r | (r >> 8);
+            const carry = cpu.A() & 0x80 == 0x80;
+            const r = (cpu.A() << 1) | if (carry) @as(u8, 0x01) else @as(u8, 0x00);
             cpu.setR8(.A, @truncate(r));
             cpu.setFlag(.Z, false);
             cpu.setFlag(.N, false);
             cpu.setFlag(.H, false);
-            cpu.setFlag(.C, r & 0x100 > 0);
+            cpu.setFlag(.C, carry);
         },
         .r8 => {
             // RLC r8 : only C and Z affected
             // // FIXME: test
             const target = _dest(cpu.opCode(), op.dest);
-            var r: u9 = @as(u9, cpu.r8(target)) << 1;
-            r = r | (r >> 8);
+            const reg = cpu.r8(target);
+            const carry = reg & 0x80 == 0x80;
+            const r = (reg << 1) | if (carry) @as(u8, 0x01) else @as(u8, 0x00);
             cpu.setR8(.A, @truncate(r));
             cpu.setFlag(.N, false);
             cpu.setFlag(.H, false);
-            cpu.setFlag(.C, r & 0x100 > 0);
+            cpu.setFlag(.C, carry);
             cpu.setFlag(.Z, cpu.A() == 0);
         },
         else => unreachable,
@@ -524,5 +526,37 @@ fn ld_a_r16mem(cpu: *SM83, _: Op) void {
         .HLi => cpu.HL += 1,
         .HLd => cpu.HL -= 1,
         else => {},
+    }
+}
+
+fn rrc(cpu: *SM83, op: Op) void {
+    // RRC has 2 version RLCA and RLC r8 (with different flag behaviour)
+    switch (op.dest) {
+        .none => {
+            // RRCA : all flags to 0 except Z
+            const a = cpu.A();
+            const carry = (a & 0x01) > 0;
+            // note: try to remove the `@as()` and see what happen
+            // hint: there is a mix of runtime and comptime values
+            const r = (a >> 1) | (if (carry) @as(u8, 0x80) else @as(u8, 0x00));
+            cpu.setR8(.A, r);
+            cpu.setFlag(.Z, false);
+            cpu.setFlag(.N, false);
+            cpu.setFlag(.H, false);
+            cpu.setFlag(.C, carry);
+        },
+        .r8 => {
+            // RRC r8 : only C and Z affected
+            const target = _dest(cpu.opCode(), op.dest);
+            const reg = cpu.r8(target);
+            const carry = (reg & 0x01) > 0;
+            const r = (reg >> 1) | (if (carry) @as(u8, 0x80) else @as(u8, 0x00));
+            cpu.setR8(target, r);
+            cpu.setFlag(.N, false);
+            cpu.setFlag(.H, false);
+            cpu.setFlag(.C, carry);
+            cpu.setFlag(.Z, reg == 0);
+        },
+        else => unreachable,
     }
 }
