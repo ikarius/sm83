@@ -1,8 +1,13 @@
 # Sharp SM83 emulator 
 
-**Disclaimer**: This is a hobby/learning project and will be work in progress for an undefined amount of time (you've been warned :)).
+**Disclaimer**: 
+This is a hobby/learning project and will be work in progress for an undefined amount of time (you've been warned :) ).
+
+As such, in early releases, many of the comments in the code may reflect some "aha!" moments. I'll strip them off later :)
 
 This is a _non-accurate_ (yet) Sharp SM83 emulator written in [Zig](https://ziglang.org) that can be used in other projects and bundled with other languages (the main target being [Go](https://go.dev)).
+
+
 
 ## Build 
 
