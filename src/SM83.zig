@@ -306,7 +306,7 @@ const Op = struct {
     func: *const fn (*SM83, Op) void,
 };
 
-fn R8PlaceholderDest(opCode: u8) Target {
+fn _r8Dest(opCode: u8) Target {
     return switch ((opCode & 0b00111000) >> 3) {
         0 => .B,
         1 => .C,
@@ -320,7 +320,7 @@ fn R8PlaceholderDest(opCode: u8) Target {
     };
 }
 
-fn R8PlaceholderSrc(opCode: u8) Target {
+fn _r8Src(opCode: u8) Target {
     return switch (opCode & 0b00000111) {
         0 => .B,
         1 => .C,
@@ -366,7 +366,7 @@ fn _r16mem(opCode: u8) Target {
 
 fn _target(opCode: u8, arg: Arg, argIsSrc: bool) Target {
     return switch (arg) {
-        .r8 => if (argIsSrc) R8PlaceholderSrc(opCode) else R8PlaceholderDest(opCode),
+        .r8 => if (argIsSrc) _r8Src(opCode) else _r8Dest(opCode),
         .r16 => _r16(opCode),
         else => unreachable,
     };
