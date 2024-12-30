@@ -116,7 +116,7 @@ fn testOpNumber(opNumber: u8) !void {
     const filePath = std.fmt.allocPrint(allocator, test_path ++ "/{x:0>2}.json", .{opNumber}) catch unreachable;
     defer allocator.free(filePath);
 
-    std.debug.print("\nTesting op file '{s}'\n", .{filePath});
+    std.debug.print("Testing op file '{s}'\n", .{filePath});
 
     const testSuite = try parseJsonFile(allocator, filePath);
     defer testSuite.deinit();
@@ -124,10 +124,9 @@ fn testOpNumber(opNumber: u8) !void {
     for (testSuite.value, 0..) |optest, i| {
         var CPU = SM83{};
 
-        std.debug.print("Running Test number {d}: {s}\n", .{ i + 1, optest.name });
-
         checkCPUState(&CPU, optest) catch |err| {
             // More details if there is an error:
+            std.debug.print("Running Test number {d}: {s}\n", .{ i + 1, optest.name });
             std.debug.print("name: {s}\n", .{optest.name});
             std.debug.print("initial: {any}\n", .{optest.initial});
             std.debug.print("final: {any}\n\n", .{optest.final});
@@ -138,7 +137,7 @@ fn testOpNumber(opNumber: u8) !void {
 }
 
 test "Open test file by number" {
-    for (0..0x17) |i| {
+    for (0..0x27) |i| {
         try testOpNumber(@truncate(i));
     }
 

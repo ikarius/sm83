@@ -156,7 +156,27 @@ pub const SM83 = struct {
 
     /// Set a flag on register F.
     fn setFlag(self: *SM83, cf: Flag, val: bool) void {
+        // FIXME: twisted
         self.AF = self.AF & 0xff00 | toggleBit(self.F(), @intFromEnum(cf), val);
+    }
+
+    fn flag(self: *SM83, f: Flag) bool {
+        return switch (f) {
+            .Z => self.AF & 0x0080 == 0x80,
+            .N => self.AF & 0x0040 == 0x40,
+            .H => self.AF & 0x0020 == 0x20,
+            .C => self.AF & 0x0010 == 0x10,
+        };
+    }
+
+    fn cond(self: SM83, c: Cond) bool {
+        const f = self.F();
+        return switch (c) {
+            .NZ => f & 0x80 == 0x0,
+            .Z => f & 0x80 == 0x80,
+            .NC => f & 0x10 == 0x0,
+            .C => f & 0x10 == 0x10,
+        };
     }
 
     /// Return current operation code (byte at address PC).
@@ -208,6 +228,17 @@ const Flag = enum(u3) {
     C = 4, // Carry
 };
 
+const Cond = enum(u2) {
+    NZ,
+    Z,
+    NC,
+    C,
+
+    fn forOpcode(opCode: u8) Cond {
+        return @enumFromInt((opCode & 0x18) >> 3);
+    }
+};
+
 // First I would like to test some really basic operations on the CPU
 // like load simple registers, but I would like to see if some macros / comptime are possible
 // to avoid code duplication
@@ -238,8 +269,7 @@ const OperandType = enum {
     bit,
 };
 
-// FIXNE: none useful anymore?
-const Target = enum { none, A, B, C, D, E, H, L, _HL_, AF, BC, DE, HL, SP, HLi, HLd };
+const Target = enum { none, A, B, C, D, E, H, L, _HL_, AF, BC, DE, HL, SP, HLi, HLd, fC, fZ };
 
 /// A CPU operation has 0, 1 or 2 args:
 /// - `none`: no argument. No argument for op is `src` and `dest` equal `none`
@@ -258,7 +288,7 @@ const Arg = enum {
     r16stk,
     r16mem,
     bit,
-    flag,
+    cond,
 };
 
 /// An `Op` object is the minimal representation of a CPU operation:
@@ -366,6 +396,11 @@ fn decode(opCode: u8) Op {
         0x09, 0x19, 0x29, 0x39 => Op{ .str = "LD", .dest = .r16, .src = .r16, .offset = 1, .tstates = 8, .func = add_hl_r16 },
         0x0a, 0x1a, 0x2a, 0x3a => Op{ .str = "LD A,", .dest = .none, .src = .r16mem, .offset = 1, .tstates = 8, .func = ld_a_r16mem },
         0x0b, 0x1b, 0x2b, 0x3b => Op{ .str = "DEC", .dest = .r16, .src = .none, .offset = 1, .tstates = 8, .func = dec16 },
+        0x10 => Op{ .str = "STOP", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = stop },
+        0x17 => Op{ .str = "RLA", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = rl },
+        0x18 => Op{ .str = "JR ", .dest = .imm8, .src = .none, .offset = 0, .tstates = 0, .func = jr },
+        0x1f => Op{ .str = "RRA", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = rr },
+        0x20, 0x30, 0x28, 0x38 => Op{ .str = "JR ", .dest = .cond, .src = .none, .offset = 0, .tstates = 0, .func = jr },
         0x40...0x45, 0x47...0x4d, 0x50...0x55, 0x57...0x5d, 0x60...0x65, 0x67...0x6d => Op{ .str = "LD", .dest = .r8, .src = .r8, .offset = 1, .tstates = 4, .func = ld },
         0x0f => Op{ .str = "RRCA", .dest = .none, .src = .none, .offset = 1, .tstates = 8, .func = rrc },
         // ...
@@ -376,6 +411,10 @@ fn decode(opCode: u8) Op {
 // CPU instructions implementation
 
 fn nop(_: *SM83, _: Op) void {}
+
+fn stop(_: *SM83, _: Op) void {
+    // FIXME: must find some documentation on what to do with this
+}
 
 fn ld_a(cpu: *SM83, _: Op) void {
     // special load case : LD [r16mem],A
@@ -559,4 +598,62 @@ fn rrc(cpu: *SM83, op: Op) void {
         },
         else => unreachable,
     }
+}
+
+fn rl(cpu: *SM83, op: Op) void {
+    const reg = switch (op.dest) {
+        .none => .A, // RLA
+        .r8 => _dest(cpu.opCode(), op.dest), // RL r8
+        else => unreachable,
+    };
+    const val = cpu.r8(reg);
+    const carry = cpu.flag(.C);
+
+    cpu.setR8(reg, (val << 1) | (if (carry) @as(u8, 0x01) else @as(u8, 0x00)));
+
+    cpu.setFlag(.N, false);
+    cpu.setFlag(.H, false);
+    cpu.setFlag(.C, (val & 0x80 == 0x80));
+    cpu.setFlag(.Z, if (op.dest == .none) false else cpu.r8(reg) == 0);
+}
+
+fn jr(cpu: *SM83, op: Op) void {
+    // JR with condition must handle tstates and PC values (depends of condition)
+    // duplicate for performance ?
+    const offset: i8 = @bitCast(cpu.imm8()); // implicit conversion
+    const base: i16 = @bitCast(cpu.PC);
+    const jumpto: i16 = base +% offset;
+    switch (op.dest) {
+        .imm8 => {
+            cpu.PC = @bitCast(jumpto);
+            cpu.curTs += 12;
+        },
+        .cond => {
+            if (cpu.cond(Cond.forOpcode(cpu.opCode()))) {
+                cpu.PC = @bitCast(jumpto);
+                cpu.curTs += 12;
+            } else {
+                cpu.curTs += 8;
+            }
+        },
+        else => unreachable,
+    }
+    cpu.PC +%= 2;
+}
+
+fn rr(cpu: *SM83, op: Op) void {
+    const reg = switch (op.dest) {
+        .none => .A, // RLA
+        .r8 => _dest(cpu.opCode(), op.dest), // RL r8
+        else => unreachable,
+    };
+    const val = cpu.r8(reg);
+    const carry = cpu.flag(.C);
+
+    cpu.setR8(reg, (val >> 1) | (if (carry) @as(u8, 0x80) else @as(u8, 0x00)));
+
+    cpu.setFlag(.N, false);
+    cpu.setFlag(.H, false);
+    cpu.setFlag(.C, (val & 0x01 == 0x01));
+    cpu.setFlag(.Z, if (op.dest == .none) false else cpu.r8(reg) == 0);
 }
