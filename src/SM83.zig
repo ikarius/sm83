@@ -421,7 +421,15 @@ fn ld_a(cpu: *SM83, _: Op) void {
     // src does not conform to any mapping, it must be treated as a distinct op
     // (or with an ugly hack)
     const opCode = cpu.mem[cpu.PC];
-    cpu.mem[cpu.r16(_r16mem(opCode))] = cpu.A();
+    const reg = _r16mem(opCode);
+    cpu.mem[cpu.r16(reg)] = cpu.A();
+    // TODO: check if pull-up relevant
+    switch (reg) {
+        // [HL+]/[HL-] post-process
+        .HLi => cpu.HL += 1,
+        .HLd => cpu.HL -= 1,
+        else => {},
+    }
 }
 
 fn ld(cpu: *SM83, op: Op) void {
@@ -469,7 +477,6 @@ fn inc16(cpu: *SM83, op: Op) void {
 fn dec16(cpu: *SM83, _: Op) void {
     // doesn't check op validity (in op we trust)
     // handle overflow
-    // FIXME: untested
     const opCode = cpu.opCode();
     const target = _r16(opCode);
 
