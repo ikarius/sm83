@@ -34,24 +34,8 @@ pub fn build(b: *std.Build) void {
     const lib_unit_tests = b.addTest(.{
         .root_source_file = b.path("src/SM83.zig"),
         .target = target,
-        // .optimize = optimize,
+        .optimize = optimize,
     });
-
-    // Adds debugging for unit tests (LLDB).
-    // As this project is a library, it does not have any executable to run *or* debug.
-    const lldb = b.addSystemCommand(&.{
-        "lldb",
-        // add lldb flags before --
-        "--",
-    });
-
-    // appends the unit_tests executable path to the lldb command line
-    lldb.addArtifactArg(lib_unit_tests);
-    // lldb.addArg can add arguments after the executable path
-
-    // the debug step depends on the `lib_unit_tests` step
-    const lldb_step = b.step("debug", "run the tests under lldb");
-    lldb_step.dependOn(&lldb.step);
 
     // Runs the unit tests.
     const run_lib_unit_tests = b.addRunArtifact(lib_unit_tests);
@@ -62,6 +46,8 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    exe_unit_tests.use_lld = true;
+
     const run_exe_unit_tests = b.addRunArtifact(exe_unit_tests);
 
     // Similar to creating the run step earlier, this exposes a `test` step to
@@ -70,4 +56,23 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run unit tests");
     test_step.dependOn(&run_lib_unit_tests.step);
     test_step.dependOn(&run_exe_unit_tests.step);
+
+    // Debug target : based on tests
+    // using SM83.zig at this point strips all the unused and unfortunately interesting parts.
+
+    // Adds debugging for unit tests (LLDB).
+    // As this project is a library, it does not have any executable to run *or* debug.
+    const lldb = b.addSystemCommand(&.{
+        "lldb",
+        // add lldb flags before --
+        "--",
+    });
+
+    // target the unit test executable (needs and compile all ops)
+    lldb.addArtifactArg(exe_unit_tests);
+    // lldb.addArg can add arguments after the executable path
+
+    // the debug step depends on the `lib_unit_tests` step
+    const lldb_step = b.step("debug", "Run the tests under lldb");
+    lldb_step.dependOn(&lldb.step);
 }
