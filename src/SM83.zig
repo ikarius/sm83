@@ -401,6 +401,7 @@ fn decode(opCode: u8) Op {
         0x18 => Op{ .str = "JR ", .dest = .imm8, .src = .none, .offset = 0, .tstates = 0, .func = jr },
         0x1f => Op{ .str = "RRA", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = rr },
         0x20, 0x30, 0x28, 0x38 => Op{ .str = "JR ", .dest = .cond, .src = .none, .offset = 0, .tstates = 0, .func = jr },
+        0x27 => Op{ .str = "DAA", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = daa },
         0x40...0x45, 0x47...0x4d, 0x50...0x55, 0x57...0x5d, 0x60...0x65, 0x67...0x6d => Op{ .str = "LD", .dest = .r8, .src = .r8, .offset = 1, .tstates = 4, .func = ld },
         0x0f => Op{ .str = "RRCA", .dest = .none, .src = .none, .offset = 1, .tstates = 8, .func = rrc },
         // ...
@@ -663,4 +664,26 @@ fn rr(cpu: *SM83, op: Op) void {
     cpu.setFlag(.H, false);
     cpu.setFlag(.C, (val & 0x01 == 0x01));
     cpu.setFlag(.Z, if (op.dest == .none) false else cpu.r8(reg) == 0);
+}
+
+fn daa(cpu: *SM83, _: Op) void {
+    //  details about DAA on SM83 here: https://blog.ollien.com/posts/gb-daa/
+    var bcd: u8 = 0;
+    const a: u8 = cpu.A();
+    const add = !cpu.flag(.N);
+    var carry = false;
+
+    if ((add and (a & 0xf) > 0x09) or cpu.flag(.H)) {
+        bcd |= 0x06;
+    }
+
+    if ((add and a > 0x99) or cpu.flag(.C)) {
+        bcd |= 0x60;
+        carry = true;
+    }
+
+    cpu.setR8(.A, if (add) (a +% bcd) else (a -% bcd));
+    cpu.setFlag(.H, false);
+    cpu.setFlag(.Z, cpu.A() == 0);
+    cpu.setFlag(.C, carry);
 }

@@ -1,13 +1,38 @@
 const std = @import("std");
-
 const expectEqual = std.testing.expectEqual;
-
 const word = @import("logic.zig").word;
 
 const SM83 = @import("SM83.zig").SM83;
 
+const test_path = "./tests/sm83/v1";
+
 // This file reads a serie of JSON files,
 // each containing 1000 tests for a given SM83 instruction.
+
+const OpTest = struct {
+    name: []const u8,
+    initial: CpuState,
+    final: CpuState,
+};
+
+/// Reads the test JSON file and returns a list of `OpTest` objects (generally 1000 of them).
+fn parseJsonFile(allocator: std.mem.Allocator, filename: []const u8) !std.json.Parsed([]OpTest) {
+    var file = try std.fs.cwd().openFile(filename, .{});
+    defer file.close();
+
+    const contents = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
+    defer allocator.free(contents);
+
+    const result = try std.json.parseFromSlice([]OpTest, allocator, contents, .{
+        .ignore_unknown_fields = true,
+        // `alloc_always` is needed because `contents` is released after parsing
+        // so we need to allocate (and keep them).
+        .allocate = .alloc_always,
+    });
+
+    return result;
+}
+
 const CpuState = struct {
     pc: u16,
     sp: u16,
@@ -23,14 +48,6 @@ const CpuState = struct {
     ie: ?u8 = null, // needs = null or fails for optional fields
     ram: [][2]u16,
 };
-
-const OpTest = struct {
-    name: []const u8,
-    initial: CpuState,
-    final: CpuState,
-};
-
-const test_path = "./tests/sm83/v1";
 
 /// Loads test data into the CPU.
 fn loadCpuState(CPU: *SM83, state: CpuState) void {
@@ -79,24 +96,6 @@ fn checkCPUState(CPU: *SM83, optest: OpTest) !void {
     try compareCpuState(CPU, optest.final);
 }
 
-/// Reads the test JSON file and returns a list of `OpTest` objects (generally 1000 of them).
-fn parseJsonFile(allocator: std.mem.Allocator, filename: []const u8) !std.json.Parsed([]OpTest) {
-    var file = try std.fs.cwd().openFile(filename, .{});
-    defer file.close();
-
-    const contents = try file.readToEndAlloc(allocator, std.math.maxInt(usize));
-    defer allocator.free(contents);
-
-    const result = try std.json.parseFromSlice([]OpTest, allocator, contents, .{
-        .ignore_unknown_fields = true,
-        // `alloc_always` is needed because `contents` is released after parsing
-        // so we need to allocate (and keep them).
-        .allocate = .alloc_always,
-    });
-
-    return result;
-}
-
 test "Open sample file (NOP)" {
     const allocator = std.testing.allocator;
     const result = try parseJsonFile(allocator, test_path ++ "/00.json");
@@ -126,7 +125,7 @@ fn testOpNumber(opNumber: u8) !void {
 
         checkCPUState(&CPU, optest) catch |err| {
             // More details if there is an error:
-            std.debug.print("Running Test number {d}: {s}\n", .{ i + 1, optest.name });
+            std.debug.print("Running Test number {d}: {s}\n", .{ i, optest.name });
             std.debug.print("name: {s}\n", .{optest.name});
             std.debug.print("initial: {any}\n", .{optest.initial});
             std.debug.print("final: {any}\n\n", .{optest.final});
@@ -137,7 +136,7 @@ fn testOpNumber(opNumber: u8) !void {
 }
 
 test "Open test file by number" {
-    for (0..0x27) |i| {
+    for (0..0x28) |i| {
         try testOpNumber(@truncate(i));
     }
 
