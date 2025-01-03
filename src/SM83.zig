@@ -93,7 +93,7 @@ pub const SM83 = struct {
 
     /// Get the immediate 16 bit value after the current instruction.
     pub fn imm16(self: SM83) u16 {
-        return @as(u16, self.mem[self.PC + 2]) << 8 | self.mem[self.PC + 1];
+        return @as(u16, self.mem[self.PC +% 2]) << 8 | self.mem[self.PC +% 1];
     }
 
     /// Get the immediate 8 bit value after the current instruction.
@@ -113,6 +113,7 @@ pub const SM83 = struct {
             .H => self.HL = setMSB(self.HL, val),
             .L => self.HL = setLSB(self.HL, val),
             .A => self.AF = setMSB(self.AF, val),
+            ._HL_ => self.mem[self.HL] = val,
             else => unreachable,
         }
     }
@@ -386,11 +387,10 @@ fn decode(opCode: u8) Op {
         0x00 => Op{ .str = "NOP", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = nop },
         0x01, 0x11, 0x21, 0x31 => Op{ .str = "LD", .dest = .r16, .src = .imm16, .offset = 3, .tstates = 12, .func = ld },
         0x02, 0x12, 0x22, 0x32 => Op{ .str = "LD", .dest = .r16mem, .src = .none, .offset = 1, .tstates = 8, .func = ld_a },
-        0x77 => Op{ .str = "LD", .dest = .r16mem, .src = .none, .offset = 1, .tstates = 8, .func = ld },
         0x03, 0x13, 0x23, 0x33 => Op{ .str = "INC", .dest = .r16, .src = .none, .offset = 1, .tstates = 8, .func = inc16 },
-        0x04, 0x14, 0x24, 0x0c, 0x1c, 0x2c, 0x3c => Op{ .str = "INC", .dest = .r8, .src = .none, .offset = 1, .tstates = 4, .func = inc8 },
-        0x05, 0x15, 0x25, 0x0d, 0x1d, 0x2d, 0x3d => Op{ .str = "DEC", .dest = .r8, .src = .none, .offset = 1, .tstates = 4, .func = dec8 },
-        0x06, 0x16, 0x26, 0x0e, 0x1e, 0x2e, 0x3e => Op{ .str = "LD", .dest = .r8, .src = .imm8, .offset = 2, .tstates = 8, .func = ld },
+        0x04, 0x14, 0x24, 0x34, 0x0c, 0x1c, 0x2c, 0x3c => Op{ .str = "INC", .dest = .r8, .src = .none, .offset = 1, .tstates = 4, .func = inc8 },
+        0x05, 0x15, 0x25, 0x35, 0x0d, 0x1d, 0x2d, 0x3d => Op{ .str = "DEC", .dest = .r8, .src = .none, .offset = 1, .tstates = 4, .func = dec8 },
+        0x06, 0x16, 0x26, 0x36, 0x0e, 0x1e, 0x2e, 0x3e => Op{ .str = "LD", .dest = .r8, .src = .imm8, .offset = 2, .tstates = 8, .func = ld },
         0x07 => Op{ .str = "RLCA", .dest = .none, .src = .none, .offset = 1, .tstates = 8, .func = rlc },
         0x08 => Op{ .str = "LD", .dest = .none, .src = .none, .offset = 3, .tstates = 20, .func = ld_imm16_sp },
         0x09, 0x19, 0x29, 0x39 => Op{ .str = "LD", .dest = .r16, .src = .r16, .offset = 1, .tstates = 8, .func = add_hl_r16 },
@@ -402,7 +402,11 @@ fn decode(opCode: u8) Op {
         0x1f => Op{ .str = "RRA", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = rr },
         0x20, 0x30, 0x28, 0x38 => Op{ .str = "JR ", .dest = .cond, .src = .none, .offset = 0, .tstates = 0, .func = jr },
         0x27 => Op{ .str = "DAA", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = daa },
-        0x40...0x45, 0x47...0x4d, 0x50...0x55, 0x57...0x5d, 0x60...0x65, 0x67...0x6d => Op{ .str = "LD", .dest = .r8, .src = .r8, .offset = 1, .tstates = 4, .func = ld },
+        0x2f => Op{ .str = "CPL", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = cpl },
+        0x37 => Op{ .str = "SCF", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = scf },
+        0x3f => Op{ .str = "CCF", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = ccf },
+        0x40...0x75, 0x77...0x7f => Op{ .str = "LD", .dest = .r8, .src = .r8, .offset = 1, .tstates = 4, .func = ld },
+        0x76 => Op{ .str = "HALT", .dest = .none, .src = .none, .offset = 1, .tstates = 1, .func = halt },
         0x0f => Op{ .str = "RRCA", .dest = .none, .src = .none, .offset = 1, .tstates = 8, .func = rrc },
         // ...
         else => unreachable,
@@ -686,4 +690,26 @@ fn daa(cpu: *SM83, _: Op) void {
     cpu.setFlag(.H, false);
     cpu.setFlag(.Z, cpu.A() == 0);
     cpu.setFlag(.C, carry);
+}
+
+fn cpl(cpu: *SM83, _: Op) void {
+    cpu.setR8(.A, ~cpu.A());
+    cpu.setFlag(.N, true);
+    cpu.setFlag(.H, true);
+}
+
+fn scf(cpu: *SM83, _: Op) void {
+    cpu.setFlag(.C, true);
+    cpu.setFlag(.N, false);
+    cpu.setFlag(.H, false);
+}
+
+fn ccf(cpu: *SM83, _: Op) void {
+    cpu.setFlag(.C, !cpu.flag(.C));
+    cpu.setFlag(.N, false);
+    cpu.setFlag(.H, false);
+}
+
+fn halt(_: *SM83, _: Op) void {
+    // FIMXE : implement (last)
 }

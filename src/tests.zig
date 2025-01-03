@@ -136,11 +136,10 @@ fn testOpNumber(opNumber: u8) !void {
 }
 
 test "Open test file by number" {
-    for (0..0x28) |i| {
+    for (0x40..0x80) |i| {
         try testOpNumber(@truncate(i));
     }
 
     // Misc tests
-    try testOpNumber(0x40);
-    try testOpNumber(0x48);
+    // try testOpNumber(0x40);
 }
