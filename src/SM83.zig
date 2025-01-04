@@ -396,6 +396,7 @@ fn decode(opCode: u8) Op {
         0x09, 0x19, 0x29, 0x39 => Op{ .str = "LD", .dest = .r16, .src = .r16, .offset = 1, .tstates = 8, .func = add_hl_r16 },
         0x0a, 0x1a, 0x2a, 0x3a => Op{ .str = "LD A,", .dest = .none, .src = .r16mem, .offset = 1, .tstates = 8, .func = ld_a_r16mem },
         0x0b, 0x1b, 0x2b, 0x3b => Op{ .str = "DEC", .dest = .r16, .src = .none, .offset = 1, .tstates = 8, .func = dec16 },
+        0x0f => Op{ .str = "RRCA", .dest = .none, .src = .none, .offset = 1, .tstates = 8, .func = rrc },
         0x10 => Op{ .str = "STOP", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = stop },
         0x17 => Op{ .str = "RLA", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = rl },
         0x18 => Op{ .str = "JR ", .dest = .imm8, .src = .none, .offset = 0, .tstates = 0, .func = jr },
@@ -407,7 +408,8 @@ fn decode(opCode: u8) Op {
         0x3f => Op{ .str = "CCF", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = ccf },
         0x40...0x75, 0x77...0x7f => Op{ .str = "LD", .dest = .r8, .src = .r8, .offset = 1, .tstates = 4, .func = ld },
         0x76 => Op{ .str = "HALT", .dest = .none, .src = .none, .offset = 1, .tstates = 1, .func = halt },
-        0x0f => Op{ .str = "RRCA", .dest = .none, .src = .none, .offset = 1, .tstates = 8, .func = rrc },
+        0x80...0x87 => Op{ .str = "ADD A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = add8 },
+        0x88...0x8f => Op{ .str = "ADC A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = adc8 },
         // ...
         else => unreachable,
     };
@@ -712,4 +714,40 @@ fn ccf(cpu: *SM83, _: Op) void {
 
 fn halt(_: *SM83, _: Op) void {
     // FIMXE : implement (last)
+}
+
+/// This special 8 bits half-carry/borrow take 3 arguments for operations like `ADC` and `SUBC`.
+/// For addition / substraction with 2 arguments, use `logic.hc8`.
+fn _hc8(a: u8, b: u8, c: u8, addition: bool) bool {
+    return switch (addition) {
+        true => ((a & 0x0F) + (b & 0x0F)) + (c & 0x0f) > 0x0f,
+        false => (a & 0x0F) < (b & 0x0F),
+    };
+}
+
+fn _add(cpu: *SM83, carry: bool) void {
+    // Only A is used as dest
+    const olda = cpu.A();
+    const src = _r8Src(cpu.opCode());
+    const c = if (cpu.flag(.C) and carry) @as(u8, 0x01) else @as(u8, 0x00);
+    const val = cpu.r8(src);
+
+    const result: u9 = @as(u9, olda) + @as(u9, val) + @as(u9, c);
+
+    cpu.setR8(.A, @truncate(result));
+
+    const a = cpu.A();
+    cpu.setFlag(.Z, a == 0);
+    cpu.setFlag(.N, false);
+    // FIXME: this is weird, and will have to check it out (add/sub with 3 terms)
+    cpu.setFlag(.H, _hc8(olda, val, c, true));
+    cpu.setFlag(.C, result & 0x100 == 0x100);
+}
+
+fn add8(cpu: *SM83, _: Op) void {
+    _add(cpu, false);
+}
+
+fn adc8(cpu: *SM83, _: Op) void {
+    _add(cpu, true);
 }

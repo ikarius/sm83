@@ -105,9 +105,9 @@ test "Open sample file (NOP)" {
 
     try expectEqual(1000, opsuite.len);
 
-    std.debug.print("name: {s}\n", .{opsuite[0].name});
-    std.debug.print("initial: {any}\n", .{opsuite[0].initial});
-    std.debug.print("final: {any}\n", .{opsuite[0].final});
+    // std.debug.print("name: {s}\n", .{opsuite[0].name});
+    // std.debug.print("initial: {any}\n", .{opsuite[0].initial});
+    // std.debug.print("final: {any}\n", .{opsuite[0].final});
 }
 
 fn testOpNumber(opNumber: u8) !void {
@@ -136,7 +136,8 @@ fn testOpNumber(opNumber: u8) !void {
 }
 
 test "Open test file by number" {
-    for (0x40..0x80) |i| {
+    for (0x80..0x90) |i| {
+        // if (i == 0x88) continue;
         try testOpNumber(@truncate(i));
     }
 
