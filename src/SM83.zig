@@ -410,6 +410,8 @@ fn decode(opCode: u8) Op {
         0x76 => Op{ .str = "HALT", .dest = .none, .src = .none, .offset = 1, .tstates = 1, .func = halt },
         0x80...0x87 => Op{ .str = "ADD A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = add8 },
         0x88...0x8f => Op{ .str = "ADC A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = adc8 },
+        0x90...0x97 => Op{ .str = "SUB A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = sub8 },
+        0x98...0x9f => Op{ .str = "SBC A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = sbc8 },
         // ...
         else => unreachable,
     };
@@ -721,7 +723,7 @@ fn halt(_: *SM83, _: Op) void {
 fn _hc8(a: u8, b: u8, c: u8, addition: bool) bool {
     return switch (addition) {
         true => ((a & 0x0F) + (b & 0x0F)) + (c & 0x0f) > 0x0f,
-        false => (a & 0x0F) < (b & 0x0F),
+        false => (a & 0x0F) < ((b & 0x0F) + (c & 0x0f)),
     };
 }
 
@@ -731,7 +733,6 @@ fn _add(cpu: *SM83, carry: bool) void {
     const src = _r8Src(cpu.opCode());
     const c = if (cpu.flag(.C) and carry) @as(u8, 0x01) else @as(u8, 0x00);
     const val = cpu.r8(src);
-
     const result: u9 = @as(u9, olda) + @as(u9, val) + @as(u9, c);
 
     cpu.setR8(.A, @truncate(result));
@@ -739,7 +740,6 @@ fn _add(cpu: *SM83, carry: bool) void {
     const a = cpu.A();
     cpu.setFlag(.Z, a == 0);
     cpu.setFlag(.N, false);
-    // FIXME: this is weird, and will have to check it out (add/sub with 3 terms)
     cpu.setFlag(.H, _hc8(olda, val, c, true));
     cpu.setFlag(.C, result & 0x100 == 0x100);
 }
@@ -750,4 +750,34 @@ fn add8(cpu: *SM83, _: Op) void {
 
 fn adc8(cpu: *SM83, _: Op) void {
     _add(cpu, true);
+}
+
+fn _sub(cpu: *SM83, carry: bool) void {
+    // Only A is used as dest
+    const olda = cpu.A();
+    const src = _r8Src(cpu.opCode());
+    const c = if (cpu.flag(.C) and carry) @as(u8, 0x01) else @as(u8, 0x00);
+    const val = cpu.r8(src);
+    const result = olda -% val -% c;
+
+    cpu.setR8(.A, result);
+
+    const a = cpu.A();
+    cpu.setFlag(.Z, a == 0);
+    cpu.setFlag(.N, true);
+    cpu.setFlag(.H, _hc8(olda, val, c, false));
+
+    // carry (actually borrow) calculation is a bit different for substraction
+    // it must be done in 2 steps
+    // a < r8 and (a - r8) < c
+    const diff = olda -% val;
+    cpu.setFlag(.C, (olda < val) or (diff < c));
+}
+
+fn sub8(cpu: *SM83, _: Op) void {
+    _sub(cpu, false);
+}
+
+fn sbc8(cpu: *SM83, _: Op) void {
+    _sub(cpu, true);
 }
