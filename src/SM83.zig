@@ -412,6 +412,10 @@ fn decode(opCode: u8) Op {
         0x88...0x8f => Op{ .str = "ADC A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = adc8 },
         0x90...0x97 => Op{ .str = "SUB A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = sub8 },
         0x98...0x9f => Op{ .str = "SBC A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = sbc8 },
+        0xa0...0xa7 => Op{ .str = "AND A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = and8 },
+        0xa8...0xaf => Op{ .str = "XOR A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = xor8 },
+        0xb0...0xb7 => Op{ .str = "OR A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = or8 },
+        0xb8...0xbf => Op{ .str = "CP A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = cp },
         // ...
         else => unreachable,
     };
@@ -766,7 +770,6 @@ fn _sub(cpu: *SM83, carry: bool) void {
     cpu.setFlag(.Z, a == 0);
     cpu.setFlag(.N, true);
     cpu.setFlag(.H, _hc8(olda, val, c, false));
-
     // carry (actually borrow) calculation is a bit different for substraction
     // it must be done in 2 steps
     // a < r8 and (a - r8) < c
@@ -780,4 +783,48 @@ fn sub8(cpu: *SM83, _: Op) void {
 
 fn sbc8(cpu: *SM83, _: Op) void {
     _sub(cpu, true);
+}
+
+fn and8(cpu: *SM83, _: Op) void {
+    const val = cpu.r8(_r8Src(cpu.opCode()));
+
+    cpu.setR8(.A, cpu.A() & val);
+
+    cpu.setFlag(.Z, cpu.A() == 0);
+    cpu.setFlag(.N, false);
+    cpu.setFlag(.H, true);
+    cpu.setFlag(.C, false);
+}
+
+fn or8(cpu: *SM83, _: Op) void {
+    const val = cpu.r8(_r8Src(cpu.opCode()));
+
+    cpu.setR8(.A, cpu.A() | val);
+
+    cpu.setFlag(.Z, cpu.A() == 0);
+    cpu.setFlag(.N, false);
+    cpu.setFlag(.H, false);
+    cpu.setFlag(.C, false);
+}
+
+fn xor8(cpu: *SM83, _: Op) void {
+    const val = cpu.r8(_r8Src(cpu.opCode()));
+
+    cpu.setR8(.A, cpu.A() ^ val);
+
+    cpu.setFlag(.Z, cpu.A() == 0);
+    cpu.setFlag(.N, false);
+    cpu.setFlag(.H, false);
+    cpu.setFlag(.C, false);
+}
+
+fn cp(cpu: *SM83, _: Op) void {
+    const val = cpu.r8(_r8Src(cpu.opCode()));
+    const a = cpu.A();
+    const result = a -% val;
+    // discard value
+    cpu.setFlag(.Z, result == 0);
+    cpu.setFlag(.N, true);
+    cpu.setFlag(.H, _hc8(a, val, 0, false));
+    cpu.setFlag(.C, a < val);
 }

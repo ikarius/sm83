@@ -136,7 +136,7 @@ fn testOpNumber(opNumber: u8) !void {
 }
 
 test "Open test file by number" {
-    for (0x90..0xa0) |i| {
+    for (0x90..0xc0) |i| {
         // if (i == 0x88) continue;
         try testOpNumber(@truncate(i));
     }
