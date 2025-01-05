@@ -416,6 +416,7 @@ fn decode(opCode: u8) Op {
         0xa8...0xaf => Op{ .str = "XOR A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = xor8 },
         0xb0...0xb7 => Op{ .str = "OR A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = or8 },
         0xb8...0xbf => Op{ .str = "CP A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = cp },
+        0xc0, 0xc8, 0xd0, 0xd8 => Op{ .str = "RET", .dest = .none, .src = .none, .offset = 0, .tstates = 0, .func = ret_cond },
         // ...
         else => unreachable,
     };
@@ -827,4 +828,16 @@ fn cp(cpu: *SM83, _: Op) void {
     cpu.setFlag(.N, true);
     cpu.setFlag(.H, _hc8(a, val, 0, false));
     cpu.setFlag(.C, a < val);
+}
+
+fn ret_cond(cpu: *SM83, _: Op) void {
+    const c = cpu.cond(Cond.forOpcode(cpu.opCode()));
+    if (c) {
+        cpu.PC = logic.word(cpu.mem[cpu.SP + 1], cpu.mem[cpu.SP]);
+        cpu.SP +%= 2;
+        cpu.curTs += 20;
+    } else {
+        cpu.PC += 1;
+        cpu.curTs += 8;
+    }
 }
