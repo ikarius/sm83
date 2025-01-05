@@ -290,6 +290,7 @@ const Arg = enum {
     r16mem,
     bit,
     cond,
+    tgt3,
 };
 
 /// An `Op` object is the minimal representation of a CPU operation:
@@ -381,6 +382,10 @@ fn _dest(opCode: u8, arg: Arg) Target {
     return _target(opCode, arg, false);
 }
 
+fn _tgt3(opCode: u8) u16 {
+    return @as(u16, (opCode & 0b00111000) >> 3) * 8;
+}
+
 fn decode(opCode: u8) Op {
     return switch (opCode) {
         // current opcode is [PC]: not necessary to store or pass it around
@@ -408,15 +413,26 @@ fn decode(opCode: u8) Op {
         0x3f => Op{ .str = "CCF", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = ccf },
         0x40...0x75, 0x77...0x7f => Op{ .str = "LD", .dest = .r8, .src = .r8, .offset = 1, .tstates = 4, .func = ld },
         0x76 => Op{ .str = "HALT", .dest = .none, .src = .none, .offset = 1, .tstates = 1, .func = halt },
-        0x80...0x87 => Op{ .str = "ADD A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = add8 },
-        0x88...0x8f => Op{ .str = "ADC A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = adc8 },
-        0x90...0x97 => Op{ .str = "SUB A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = sub8 },
-        0x98...0x9f => Op{ .str = "SBC A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = sbc8 },
-        0xa0...0xa7 => Op{ .str = "AND A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = and8 },
-        0xa8...0xaf => Op{ .str = "XOR A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = xor8 },
-        0xb0...0xb7 => Op{ .str = "OR A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = or8 },
-        0xb8...0xbf => Op{ .str = "CP A", .dest = .none, .src = .none, .offset = 1, .tstates = 4, .func = cp },
-        0xc0, 0xc8, 0xd0, 0xd8 => Op{ .str = "RET", .dest = .none, .src = .none, .offset = 0, .tstates = 0, .func = ret_cond },
+        0x80...0x87 => Op{ .str = "ADD A", .dest = .none, .src = .r8, .offset = 1, .tstates = 4, .func = add8 },
+        0x88...0x8f => Op{ .str = "ADC A", .dest = .none, .src = .r8, .offset = 1, .tstates = 4, .func = adc8 },
+        0x90...0x97 => Op{ .str = "SUB A", .dest = .none, .src = .r8, .offset = 1, .tstates = 4, .func = sub8 },
+        0x98...0x9f => Op{ .str = "SBC A", .dest = .none, .src = .r8, .offset = 1, .tstates = 4, .func = sbc8 },
+        0xa0...0xa7 => Op{ .str = "AND A", .dest = .none, .src = .r8, .offset = 1, .tstates = 4, .func = and8 },
+        0xa8...0xaf => Op{ .str = "XOR A", .dest = .none, .src = .r8, .offset = 1, .tstates = 4, .func = xor8 },
+        0xb0...0xb7 => Op{ .str = "OR A", .dest = .none, .src = .r8, .offset = 1, .tstates = 4, .func = or8 },
+        0xb8...0xbf => Op{ .str = "CP A", .dest = .none, .src = .r8, .offset = 1, .tstates = 4, .func = cp },
+        0xc0, 0xc8, 0xd0, 0xd8 => Op{ .str = "RET", .dest = .cond, .src = .none, .offset = 0, .tstates = 0, .func = ret_cond },
+        0xc1, 0xd1, 0xe1, 0xf1 => Op{ .str = "POP", .dest = .r16stk, .src = .none, .offset = 1, .tstates = 12, .func = pop },
+        0xc2, 0xd2, 0xca, 0xda => Op{ .str = "JP", .dest = .cond, .src = .imm16, .offset = 0, .tstates = 0, .func = jp_cond },
+        0xc3 => Op{ .str = "JP", .dest = .imm16, .src = .none, .offset = 0, .tstates = 16, .func = jp_cond },
+        0xc4, 0xd4, 0xcc, 0xdc => Op{ .str = "CALL", .dest = .cond, .src = .imm16, .offset = 0, .tstates = 0, .func = call_cond },
+        0xc5, 0xd5, 0xe5, 0xf5 => Op{ .str = "PUSH", .dest = .r16stk, .src = .none, .offset = 1, .tstates = 16, .func = push },
+        0xc6 => Op{ .str = "ADD A", .dest = .none, .src = .imm8, .offset = 2, .tstates = 8, .func = add8 },
+        0xc7, 0xd7, 0xe7, 0xf7, 0xcf, 0xdf, 0xef, 0xff => Op{ .str = "RST", .dest = .tgt3, .src = .none, .offset = 0, .tstates = 16, .func = rst },
+        0xc9 => Op{ .str = "RET", .dest = .none, .src = .none, .offset = 0, .tstates = 0, .func = ret_cond },
+        0xcb => decode_prefixed(),
+        0xcd => Op{ .str = "CALL", .dest = .imm16, .src = .none, .offset = 0, .tstates = 24, .func = call_cond },
+        0xce => Op{ .str = "ADC A", .dest = .none, .src = .imm8, .offset = 2, .tstates = 8, .func = adc8 },
         // ...
         else => unreachable,
     };
@@ -444,6 +460,11 @@ fn ld_a(cpu: *SM83, _: Op) void {
         .HLd => cpu.HL -= 1,
         else => {},
     }
+}
+
+fn decode_prefixed() Op {
+    // FIXME: implement
+    return Op{ .str = "PREFIXED", .dest = .none, .src = .none, .offset = 0, .tstates = 0, .func = nop };
 }
 
 fn ld(cpu: *SM83, op: Op) void {
@@ -732,12 +753,12 @@ fn _hc8(a: u8, b: u8, c: u8, addition: bool) bool {
     };
 }
 
-fn _add(cpu: *SM83, carry: bool) void {
+fn _add(cpu: *SM83, val: u8, carry: bool) void {
     // Only A is used as dest
     const olda = cpu.A();
-    const src = _r8Src(cpu.opCode());
+    // const src = _r8Src(cpu.opCode());
     const c = if (cpu.flag(.C) and carry) @as(u8, 0x01) else @as(u8, 0x00);
-    const val = cpu.r8(src);
+    // const val = cpu.r8(src);
     const result: u9 = @as(u9, olda) + @as(u9, val) + @as(u9, c);
 
     cpu.setR8(.A, @truncate(result));
@@ -749,12 +770,31 @@ fn _add(cpu: *SM83, carry: bool) void {
     cpu.setFlag(.C, result & 0x100 == 0x100);
 }
 
-fn add8(cpu: *SM83, _: Op) void {
-    _add(cpu, false);
+fn add8(cpu: *SM83, op: Op) void {
+    switch (op.src) {
+        .r8 => {
+            const src = _r8Src(cpu.opCode());
+            _add(cpu, cpu.r8(src), false);
+        },
+        .imm8 => {
+            _add(cpu, cpu.imm8(), false);
+        },
+        else => unreachable,
+    }
 }
 
-fn adc8(cpu: *SM83, _: Op) void {
-    _add(cpu, true);
+fn adc8(cpu: *SM83, op: Op) void {
+    switch (op.src) {
+        .r8 => {
+            const src = _r8Src(cpu.opCode());
+            _add(cpu, cpu.r8(src), true);
+        },
+        .imm8 => {
+            _add(cpu, cpu.imm8(), true);
+        },
+        else => unreachable,
+    }
+    // _add(cpu, true);
 }
 
 fn _sub(cpu: *SM83, carry: bool) void {
@@ -830,14 +870,94 @@ fn cp(cpu: *SM83, _: Op) void {
     cpu.setFlag(.C, a < val);
 }
 
-fn ret_cond(cpu: *SM83, _: Op) void {
-    const c = cpu.cond(Cond.forOpcode(cpu.opCode()));
-    if (c) {
-        cpu.PC = logic.word(cpu.mem[cpu.SP + 1], cpu.mem[cpu.SP]);
-        cpu.SP +%= 2;
-        cpu.curTs += 20;
-    } else {
-        cpu.PC += 1;
-        cpu.curTs += 8;
+fn ret_cond(cpu: *SM83, op: Op) void {
+    switch (op.dest) {
+        .cond => {
+            const c = cpu.cond(Cond.forOpcode(cpu.opCode()));
+            if (c) {
+                cpu.PC = logic.word(cpu.mem[cpu.SP + 1], cpu.mem[cpu.SP]);
+                cpu.SP +%= 2;
+                cpu.curTs += 20;
+            } else {
+                cpu.PC += 1;
+                cpu.curTs += 8;
+            }
+        },
+        .none => {
+            cpu.PC = logic.word(cpu.mem[cpu.SP + 1], cpu.mem[cpu.SP]);
+            cpu.SP +%= 2;
+            cpu.curTs += 20;
+        },
+        else => unreachable,
     }
+}
+
+fn _pop(cpu: *SM83) u16 {
+    const val = logic.word(cpu.mem[cpu.SP + 1], cpu.mem[cpu.SP]);
+    cpu.SP +%= 2;
+    return val;
+}
+
+fn pop(cpu: *SM83, _: Op) void {
+    // const val = logic.word(cpu.mem[cpu.SP + 1], cpu.mem[cpu.SP]);
+    cpu.setR16(_r16stk(cpu.opCode()), _pop(cpu));
+    // cpu.SP +%= 2;
+}
+
+fn jp_cond(cpu: *SM83, op: Op) void {
+    switch (op.dest) {
+        .cond => {
+            const c = cpu.cond(Cond.forOpcode(cpu.opCode()));
+            if (c) {
+                cpu.PC = cpu.imm16();
+                cpu.curTs += 16;
+            } else {
+                cpu.PC += 3;
+                cpu.curTs += 12;
+            }
+        },
+        .imm16 => {
+            cpu.PC = cpu.imm16();
+        },
+        else => unreachable,
+    }
+}
+
+fn call_cond(cpu: *SM83, op: Op) void {
+    switch (op.dest) {
+        .cond => {
+            const c = cpu.cond(Cond.forOpcode(cpu.opCode()));
+            if (c) {
+                _push(cpu, cpu.PC + 3);
+                cpu.PC = cpu.imm16();
+                cpu.curTs += 24;
+            } else {
+                cpu.PC += 3;
+                cpu.curTs += 12;
+            }
+        },
+        .imm16 => {
+            _push(cpu, cpu.PC + 3);
+            cpu.PC = cpu.imm16();
+            cpu.curTs += 24;
+        },
+        else => unreachable,
+    }
+}
+
+fn _push(cpu: *SM83, val: u16) void {
+    cpu.SP -%= 2;
+    cpu.mem[cpu.SP] = LSB(val);
+    cpu.mem[cpu.SP + 1] = MSB(val);
+}
+
+fn push(cpu: *SM83, _: Op) void {
+    const val = cpu.r16(_r16stk(cpu.opCode()));
+    _push(cpu, val);
+}
+
+fn rst(cpu: *SM83, _: Op) void {
+    const addr = _tgt3(cpu.opCode());
+    _push(cpu, cpu.PC + 1);
+    cpu.PC = addr;
 }
