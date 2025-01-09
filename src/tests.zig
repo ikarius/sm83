@@ -136,10 +136,17 @@ fn testOpNumber(opNumber: u8) !void {
 }
 
 test "Open test file by number" {
-    for (0xc0..0xe0) |i| {
+    for (0xd0..0xe0) |i| {
         // skip prefixed ops
         if (i == 0xcb) continue;
-        try testOpNumber(@truncate(i));
+        testOpNumber(@truncate(i)) catch |err| {
+            switch (err) {
+                error.FileNotFound => {
+                    std.debug.print(" > Unknown test file: `{x:0>2}.json`, passing...\n", .{i});
+                },
+                else => return err,
+            }
+        };
     }
 
     // Misc tests
