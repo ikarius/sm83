@@ -347,7 +347,7 @@ fn _r16(opCode: u8) Target {
 }
 
 fn _r16stk(opCode: u8) Target {
-    return switch (opCode & 0b00111000) {
+    return switch ((opCode & 0b00110000) >> 4) {
         0 => .BC,
         1 => .DE,
         2 => .HL,
@@ -433,6 +433,9 @@ fn decode(opCode: u8) Op {
         0xcb => decode_prefixed(),
         0xcd => Op{ .str = "CALL", .dest = .imm16, .src = .none, .offset = 0, .tstates = 24, .func = call_cond },
         0xce => Op{ .str = "ADC A", .dest = .none, .src = .imm8, .offset = 2, .tstates = 8, .func = adc8 },
+        0xd6 => Op{ .str = "SUB A", .dest = .none, .src = .imm8, .offset = 2, .tstates = 8, .func = sub8 },
+        0xd3, 0xdb, 0xdd, 0xe3, 0xe4, 0xeb...0xed, 0xf4, 0xfc, 0xfd => Op{ .str = "?INVALID", .dest = .none, .src = .none, .offset = 0, .tstates = 0, .func = invalid },
+
         // ...
         else => unreachable,
     };
@@ -441,6 +444,10 @@ fn decode(opCode: u8) Op {
 // CPU instructions implementation
 
 fn nop(_: *SM83, _: Op) void {}
+
+fn invalid(_: *SM83, _: Op) void {
+    // FIXME: implement
+}
 
 fn stop(_: *SM83, _: Op) void {
     // FIXME: must find some documentation on what to do with this
@@ -522,33 +529,33 @@ fn dec16(cpu: *SM83, _: Op) void {
 fn inc8(CPU: *SM83, op: Op) void {
     const opCode = CPU.opCode();
     const target = _target(opCode, op.dest, false);
-
     var value = CPU.r8(target);
     const old = value;
+
     value +%= 1;
+    CPU.setR8(target, value);
 
     CPU.setFlag(Flag.H, hc8(old, value, true));
     CPU.setFlag(Flag.Z, value == 0);
     CPU.setFlag(Flag.N, false);
     // C is unchanged
 
-    CPU.setR8(target, value);
 }
 
 fn dec8(CPU: *SM83, op: Op) void {
     const opCode = CPU.opCode();
     const target = _target(opCode, op.dest, false);
-
     var value = CPU.r8(target);
     const old = value;
+
     value -%= 1;
+    CPU.setR8(target, value);
 
     CPU.setFlag(Flag.H, hc8(old, value, false));
     CPU.setFlag(Flag.Z, value == 0);
     CPU.setFlag(Flag.N, true);
     // C is unchanged
 
-    CPU.setR8(target, value);
 }
 
 fn rlc(cpu: *SM83, op: Op) void {
@@ -756,9 +763,7 @@ fn _hc8(a: u8, b: u8, c: u8, addition: bool) bool {
 fn _add(cpu: *SM83, val: u8, carry: bool) void {
     // Only A is used as dest
     const olda = cpu.A();
-    // const src = _r8Src(cpu.opCode());
     const c = if (cpu.flag(.C) and carry) @as(u8, 0x01) else @as(u8, 0x00);
-    // const val = cpu.r8(src);
     const result: u9 = @as(u9, olda) + @as(u9, val) + @as(u9, c);
 
     cpu.setR8(.A, @truncate(result));
@@ -794,21 +799,19 @@ fn adc8(cpu: *SM83, op: Op) void {
         },
         else => unreachable,
     }
-    // _add(cpu, true);
 }
 
-fn _sub(cpu: *SM83, carry: bool) void {
+fn _sub(cpu: *SM83, val: u8, carry: bool) void {
     // Only A is used as dest
     const olda = cpu.A();
-    const src = _r8Src(cpu.opCode());
+    // const src = _r8Src(cpu.opCode());
     const c = if (cpu.flag(.C) and carry) @as(u8, 0x01) else @as(u8, 0x00);
-    const val = cpu.r8(src);
+    // const val = cpu.r8(src);
     const result = olda -% val -% c;
 
     cpu.setR8(.A, result);
 
-    const a = cpu.A();
-    cpu.setFlag(.Z, a == 0);
+    cpu.setFlag(.Z, result == 0);
     cpu.setFlag(.N, true);
     cpu.setFlag(.H, _hc8(olda, val, c, false));
     // carry (actually borrow) calculation is a bit different for substraction
@@ -818,12 +821,30 @@ fn _sub(cpu: *SM83, carry: bool) void {
     cpu.setFlag(.C, (olda < val) or (diff < c));
 }
 
-fn sub8(cpu: *SM83, _: Op) void {
-    _sub(cpu, false);
+fn sub8(cpu: *SM83, op: Op) void {
+    switch (op.src) {
+        .r8 => {
+            const src = _r8Src(cpu.opCode());
+            _sub(cpu, cpu.r8(src), false);
+        },
+        .imm8 => {
+            _sub(cpu, cpu.imm8(), false);
+        },
+        else => unreachable,
+    }
 }
 
-fn sbc8(cpu: *SM83, _: Op) void {
-    _sub(cpu, true);
+fn sbc8(cpu: *SM83, op: Op) void {
+    switch (op.src) {
+        .r8 => {
+            const src = _r8Src(cpu.opCode());
+            _sub(cpu, cpu.r8(src), true);
+        },
+        .imm8 => {
+            _sub(cpu, cpu.imm8(), true);
+        },
+        else => unreachable,
+    }
 }
 
 fn and8(cpu: *SM83, _: Op) void {
@@ -893,15 +914,13 @@ fn ret_cond(cpu: *SM83, op: Op) void {
 }
 
 fn _pop(cpu: *SM83) u16 {
-    const val = logic.word(cpu.mem[cpu.SP + 1], cpu.mem[cpu.SP]);
+    const val: u16 = logic.word(cpu.mem[cpu.SP +% 1], cpu.mem[cpu.SP]);
     cpu.SP +%= 2;
     return val;
 }
 
 fn pop(cpu: *SM83, _: Op) void {
-    // const val = logic.word(cpu.mem[cpu.SP + 1], cpu.mem[cpu.SP]);
     cpu.setR16(_r16stk(cpu.opCode()), _pop(cpu));
-    // cpu.SP +%= 2;
 }
 
 fn jp_cond(cpu: *SM83, op: Op) void {
