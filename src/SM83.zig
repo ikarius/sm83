@@ -434,6 +434,8 @@ fn decode(opCode: u8) Op {
         0xcd => Op{ .str = "CALL", .dest = .imm16, .src = .none, .offset = 0, .tstates = 24, .func = call_cond },
         0xce => Op{ .str = "ADC A", .dest = .none, .src = .imm8, .offset = 2, .tstates = 8, .func = adc8 },
         0xd6 => Op{ .str = "SUB A", .dest = .none, .src = .imm8, .offset = 2, .tstates = 8, .func = sub8 },
+        0xd9 => Op{ .str = "RETI", .dest = .none, .src = .none, .offset = 0, .tstates = 16, .func = reti },
+        0xde => Op{ .str = "SBC A", .dest = .none, .src = .imm8, .offset = 2, .tstates = 8, .func = sbc8 },
         0xd3, 0xdb, 0xdd, 0xe3, 0xe4, 0xeb...0xed, 0xf4, 0xfc, 0xfd => Op{ .str = "?INVALID", .dest = .none, .src = .none, .offset = 0, .tstates = 0, .func = invalid },
 
         // ...
@@ -979,4 +981,10 @@ fn rst(cpu: *SM83, _: Op) void {
     const addr = _tgt3(cpu.opCode());
     _push(cpu, cpu.PC + 1);
     cpu.PC = addr;
+}
+
+fn reti(cpu: *SM83, _: Op) void {
+    // FIXME: EI
+    cpu.PC = logic.word(cpu.mem[cpu.SP + 1], cpu.mem[cpu.SP]);
+    cpu.SP +%= 2;
 }
