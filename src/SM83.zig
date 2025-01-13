@@ -247,28 +247,17 @@ const Cond = enum(u2) {
 // Experimental (still) :
 // CPU operations
 
-/// Operands found in a CPU operation:
-///
-/// an op can have 0, 1 or 2 operands (`src` and `dest`).
-/// - register `BC` (reg16) and `0x1234` (imm16) in op `LD BC,01234H`
-/// - register `B` (reg8) and value of `[HL]` (reg16ind) in op `LD B,[HL]`
-/// - register 'A' (reg8) in op `INC A`
-/// - none in `NOP`
-/// - bit 3 (bit) and register `A` (reg8) in op `RES 3,A`
-/// - address 8bit index H (ind8) and register `A` in op `LDH[ind8],A`
-/// - address 16bit index (ind16) and register `A` in op `LD [ind16],A`
-const OperandType = enum {
-    none,
-    reg8,
-    reg16,
-    imm8,
-    imm16,
-    ind8,
-    ind16,
-    reg16ind,
-    addr,
-    bit,
-};
+// TODO: extract and delete (deprecated)
+// Operands found in a CPU operation:
+//
+// an op can have 0, 1 or 2 operands (`src` and `dest`).
+// - register `BC` (reg16) and `0x1234` (imm16) in op `LD BC,01234H`
+// - register `B` (reg8) and value of `[HL]` (reg16ind) in op `LD B,[HL]`
+// - register 'A' (reg8) in op `INC A`
+// - none in `NOP`
+// - bit 3 (bit) and register `A` (reg8) in op `RES 3,A`
+// - address 8bit index H (ind8) and register `A` in op `LDH[ind8],A`
+// - address 16bit index (ind16) and register `A` in op `LD [ind16],A`
 
 const Target = enum { none, A, B, C, D, E, H, L, _HL_, AF, BC, DE, HL, SP, HLi, HLd, fC, fZ };
 
@@ -278,6 +267,7 @@ const Target = enum { none, A, B, C, D, E, H, L, _HL_, AF, BC, DE, HL, SP, HLi, 
 /// - `r8` and `r16`: registers of the CPU
 /// - `r16stk`: 16 bit register used for a stack operation
 /// - `r16mem`: address referenced by a 16 bit register (f.i. [HL])
+/// - `mem8`: address referenced by a 8 bit register (f.i. LDH[mem8],A)
 /// - `bit`: operation on a bit
 /// - `flag`: operation using flags (f.i. jump/calls)
 const Arg = enum {
@@ -291,6 +281,7 @@ const Arg = enum {
     bit,
     cond,
     tgt3,
+    mem8,
 };
 
 /// An `Op` object is the minimal representation of a CPU operation:
@@ -436,6 +427,8 @@ fn decode(opCode: u8) Op {
         0xd6 => Op{ .str = "SUB A", .dest = .none, .src = .imm8, .offset = 2, .tstates = 8, .func = sub8 },
         0xd9 => Op{ .str = "RETI", .dest = .none, .src = .none, .offset = 0, .tstates = 16, .func = reti },
         0xde => Op{ .str = "SBC A", .dest = .none, .src = .imm8, .offset = 2, .tstates = 8, .func = sbc8 },
+        0xe0 => Op{ .str = "LDH", .dest = .mem8, .src = .none, .offset = 2, .tstates = 12, .func = ldh },
+        0xe2 => Op{ .str = "LDH [C],A", .dest = .r8, .src = .none, .offset = 1, .tstates = 8, .func = ldh },
         0xd3, 0xdb, 0xdd, 0xe3, 0xe4, 0xeb...0xed, 0xf4, 0xfc, 0xfd => Op{ .str = "?INVALID", .dest = .none, .src = .none, .offset = 0, .tstates = 0, .func = invalid },
 
         // ...
@@ -609,6 +602,7 @@ fn add_hl_r16(cpu: *SM83, _: Op) void {
     cpu.setFlag(.N, false);
 }
 
+// TODO: handle via LD ? LD A ?
 fn ld_a_r16mem(cpu: *SM83, _: Op) void {
     const reg = _r16mem(cpu.opCode());
     cpu.setR8(.A, cpu.mem[cpu.r16(reg)]);
@@ -987,4 +981,19 @@ fn reti(cpu: *SM83, _: Op) void {
     // FIXME: EI
     cpu.PC = logic.word(cpu.mem[cpu.SP + 1], cpu.mem[cpu.SP]);
     cpu.SP +%= 2;
+}
+
+fn ldh(cpu: *SM83, op: Op) void {
+    switch (op.dest) {
+        .none => {
+            // [C]
+        },
+        .r8 => {
+            cpu.mem[0xff00 | @as(u16, cpu.C())] = cpu.A();
+        },
+        .mem8 => {
+            cpu.mem[0xff00 | @as(u16, cpu.imm8())] = cpu.A();
+        },
+        else => unreachable,
+    }
 }
